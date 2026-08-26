@@ -1,122 +1,76 @@
-import { useState } from 'react'
-import heroImg from './assets/hero.png'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import './App.css'
+import { useEffect, useState } from 'react';
 
-function App() {
-  const [count, setCount] = useState(0)
+const url = import.meta.env.VITE_SUPABASE_URL;
+const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+type Status =
+  | { kind: 'pending' }
+  | { kind: 'ok'; userId: string }
+  | { kind: 'error'; message: string };
+
+export default function App() {
+  const [status, setStatus] = useState<Status>({ kind: 'pending' });
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        // Imported lazily so a createClient() failure (e.g. blank env vars)
+        // surfaces on-page instead of blanking the whole app at module load.
+        const { ensureSession } = await import('./lib/supabase');
+        const session = await ensureSession();
+        if (cancelled) return;
+        const userId = session?.user?.id;
+        if (!userId) {
+          setStatus({ kind: 'error', message: 'ensureSession() returned no session/user.' });
+          return;
+        }
+        setStatus({ kind: 'ok', userId });
+      } catch (err) {
+        if (cancelled) return;
+        setStatus({
+          kind: 'error',
+          message: err instanceof Error ? `${err.name}: ${err.message}` : String(err),
+        });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
-        <div>
-          <h1>Get started</h1>
+    <div style={{ fontSize: 16, lineHeight: 1.5, padding: 16, fontFamily: 'system-ui, sans-serif' }}>
+      <h1 style={{ fontSize: 20 }}>Supabase diagnostics</h1>
+
+      <p style={{ fontSize: 16 }}>
+        VITE_SUPABASE_URL: <strong>{url ? 'present' : 'MISSING'}</strong>
+      </p>
+      <p style={{ fontSize: 16 }}>
+        VITE_SUPABASE_ANON_KEY: <strong>{anonKey ? 'present' : 'MISSING'}</strong>
+      </p>
+
+      <hr />
+
+      {status.kind === 'pending' && <p style={{ fontSize: 16 }}>ensureSession(): running…</p>}
+
+      {status.kind === 'ok' && (
+        <p style={{ fontSize: 16 }}>
+          ensureSession(): <strong>OK</strong> — user ID starts with{' '}
+          <code style={{ fontSize: 16 }}>{status.userId.slice(0, 8)}</code>
+        </p>
+      )}
+
+      {status.kind === 'error' && (
+        <div style={{ fontSize: 16 }}>
           <p>
-            Edit <code>src/App.tsx</code> and save to test <code>HMR</code>
+            ensureSession(): <strong>FAILED</strong>
           </p>
+          <pre style={{ fontSize: 16, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+            {status.message}
+          </pre>
         </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
-
-      <div className="ticks"></div>
-
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
-
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
-  )
+      )}
+    </div>
+  );
 }
-
-export default App
