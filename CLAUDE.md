@@ -90,7 +90,7 @@ These were cut on purpose to protect the deadline. **Do not add them back** with
 - [x] Create post screen
 - [x] Like button
 - [x] Replies
-- [ ] Profile edit screen
+- [x] Profile edit screen
 - [ ] Mobile polish pass
 - [ ] Deployed and tested on device
 
@@ -101,7 +101,11 @@ These were cut on purpose to protect the deadline. **Do not add them back** with
 
 ### Immediate next task
 
-**Feed (`/`), post detail (`/p/:id`), create post (`/new`), the like toggle, and replies are built.** All compile and lint clean, and every write path is verified against the live project (4a, 4b, 4c). Next up is section 11's **profile prompt (`/me`)** — the last unbuilt screen before the polish pass.
+**Every screen is built** — feed, post detail, create post, like toggle, replies, and profile edit. All compile and lint clean, and every write path is verified against the live project (4a–4d). What remains is section 11's **final polish prompt**: safe-area insets, keyboard avoidance on the composers, the account-fragility banner, and optionally the PWA manifest.
+
+Nav is complete: **Me** and **Ask** in the header, plus "Ask a question" buttons in the feed's and profile's empty states.
+
+**Nothing has been seen on a real iPhone yet.** Every verification so far has been a build, a lint, or a query run against the live database — none of it says whether the app *feels* right on a phone. That is what the polish pass is for, and it is the last checkbox in this section that no amount of local checking can tick.
 
 One structural note that will matter again: **the feed card is no longer a single `<Link>`.** A `<button>` nested inside an `<a>` is invalid HTML, and tapping the heart would navigate to the post. So the card is a `<li class="post-card">` holding a `<Link class="post-card-main">` for the tappable region, with the like button as a sibling below it. Any future interactive control on a feed card has to go outside `.post-card-main` the same way.
 
@@ -123,7 +127,9 @@ Two things worth carrying forward:
 - **The author embed returns an object.** `src/lib/types.ts` normalizes both object and array shapes anyway, since PostgREST's to-one embed shape has varied across versions. Don't "simplify" that away on the strength of one observation.
 - **A non-author delete returns `200` with an empty array, not a `403`.** This is the exact "silently returns zero rows" symptom section 9 warns about — RLS filters the rows out rather than raising. So *any* future update or delete must check the returned row count to know whether it did anything; a missing `error` proves nothing.
 
-**Leftover test data to clear.** Verifying the write, like, and reply paths necessarily created rows: seven anonymous users, plus one post titled `claude verification post`. One statement removes all of it — the cascade takes the post along with its author.
+**Leftover test data to clear.** Verifying the write, like, reply, and profile paths necessarily created rows: eight anonymous users, plus one post titled `claude verification post`. One statement removes all of it — the cascade takes the post along with its author.
+
+Note that one of them, `anon-6403`, **no longer has a name starting with `anon-`** — the profile verification renamed it, which is the whole point of that screen. It is matched by id instead.
 
 ```sql
 delete from auth.users
@@ -132,6 +138,7 @@ where is_anonymous = true
     select id from public.profiles
     where display_name in ('anon-8d1e','anon-7be1','anon-8e3b','anon-14f0',
                            'anon-611c','anon-0a66','anon-d4c6')
+       or id::text like '6403%'
   );
 ```
 
@@ -175,6 +182,24 @@ Rolling both fields back in these cases would put the UI *further* from the serv
 **The UI never offers a reply-to-a-reply.** Only top-level comments render a Reply button, so the trigger is a backstop rather than a routine path — but the error is surfaced, not swallowed, because a silent no-op after typing a reply is the worst outcome.
 
 **Reply totals on the detail screen count the loaded list, not `posts.comment_count`.** An optimistic reply lands in the total immediately, and the number always matches what is on screen. The two can legitimately differ — RLS hides a `hidden` comment from the list while the counter trigger still counted it — and in that case the list is the honest number. The feed still reads `comment_count`, which is correct there: it is a cheap denormalized count and the feed refetches on mount.
+
+### 4d. Profile edit verified against the live project (Day 2)
+
+| Step | Result |
+|---|---|
+| Update own profile with `.select()` | `200`, returns the updated row |
+| Update **someone else's** profile | `200`, returns `[]`, target unchanged |
+| 31-character display name | `400`, `23514` `display_name_len` |
+| **30 emoji** as a display name | `200` — accepted |
+| 301-character bio | `400`, `23514` `bio_len` |
+
+Row two is the silent case in its purest form: **`200`, no `error`, and nothing written.** RLS filtered the row out. `Profile.tsx` treats an empty array as a failure and says so, because the alternative is a screen that cheerfully reports "Saved" while the database ignored it.
+
+Row four is why the counters use `charLength()` from `src/lib/text.ts` and not `.length`. Thirty 🎧 characters is exactly at the limit for `char_length()` and the database accepts it, while `.length` reads 60 — a counter built on `.length` would have blocked a legal name at fifteen. **Any future field with a `char_length` constraint needs the same helper.**
+
+**`avatar_emoji` has no length constraint at all** — it is plain `text not null default '🙂'`. So it is edited through a fixed grid of choices rather than a text field, which keeps the column sane without pretending a counter could help: emoji are frequently several code points (flags are two, ZWJ sequences like 👩‍🚀 are three or more), so "one character" is not a rule counting can express. Whatever is already stored keeps a slot in the grid even if it isn't one of the presets, so a value set by hand in the SQL editor survives an edit.
+
+**The profile screen is where a missing `profiles` row surfaces first.** If the `handle_new_user` trigger ever fails to fire, `/me` shows "Your profile row is missing" and points at 7a, rather than rendering an empty form that silently writes nothing.
 
 ---
 

@@ -179,9 +179,14 @@ a {
   opacity: 0.85;
 }
 
-/* "Ask" in the header — pushed to the trailing edge. */
-.btn-ask {
+/* Header nav sits at the trailing edge; "Me" starts the group. */
+.nav-link {
   margin-left: auto;
+  color: var(--text);
+  font-size: var(--fs-base);
+}
+
+.btn-ask {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -209,6 +214,44 @@ a {
   width: auto;
   padding-left: var(--sp-5);
   padding-right: var(--sp-5);
+}
+
+/* ---------- avatar picker ---------- */
+
+.emoji-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(var(--tap), 1fr));
+  gap: var(--sp-2);
+  margin-top: var(--sp-2);
+}
+
+.emoji-choice {
+  min-height: var(--tap);
+  min-width: var(--tap);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--fs-xl);
+  line-height: 1;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+}
+
+.emoji-choice.selected {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.badge-hidden {
+  margin-left: var(--sp-2);
+  padding: 0 var(--sp-2);
+  border-radius: var(--radius-sm);
+  background: var(--like-soft);
+  color: var(--danger);
+  font-size: var(--fs-sm);
+  font-weight: 600;
 }
 
 /* ---------- composer ---------- */
