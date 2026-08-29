@@ -1,3 +1,5 @@
+import type { ReactNode } from 'react';
+
 export function Loading({ label = 'Loading…' }: { label?: string }) {
   return (
     <div className="state" role="status" aria-live="polite">
@@ -20,11 +22,20 @@ export function SkeletonCards({ count = 3 }: { count?: number }) {
   );
 }
 
-export function EmptyState({ title, body }: { title: string; body: string }) {
+export function EmptyState({
+  title,
+  body,
+  action,
+}: {
+  title: string;
+  body: string;
+  action?: ReactNode;
+}) {
   return (
     <div className="state">
       <p className="state-title">{title}</p>
       <p className="state-body">{body}</p>
+      {action && <div className="state-action">{action}</div>}
     </div>
   );
 }

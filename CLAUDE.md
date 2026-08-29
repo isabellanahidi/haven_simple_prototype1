@@ -87,7 +87,7 @@ These were cut on purpose to protect the deadline. **Do not add them back** with
 - [x] Clean out the 9 test users before real testers arrive (optional, see 6c)
 - [x] Feed screen
 - [x] Post detail screen
-- [ ] Create post screen
+- [x] Create post screen
 - [ ] Like button
 - [ ] Replies
 - [ ] Profile edit screen
@@ -101,14 +101,37 @@ These were cut on purpose to protect the deadline. **Do not add them back** with
 
 ### Immediate next task
 
-**Feed (`/`) and post detail (`/p/:id`) are built.** Both compile, lint clean, and their queries are verified against the live Supabase project. Next up is section 11's **create-post prompt (`/new`)**.
+**Feed (`/`), post detail (`/p/:id`), and create post (`/new`) are built.** All three compile and lint clean, and the write path is verified against the live project (see 4a). Next up is section 11's **like-button prompt**.
 
-**Why `/new` is genuinely the blocker, not just the next item.** There are zero rows in `posts`, and nothing in the app can create one — so the feed currently renders its empty state and the detail screen is unreachable by tapping. Neither has been seen with real data. `/new` is what makes them verifiable, so build it before doing any visual polish on the two screens that exist.
+One note carried into the next session: **the like heart is display-only.** The current user's likes are fetched into a `Set` (separately from the feed query, per section 8) and drive the filled/empty state on both the feed cards and the detail screen, but tapping does nothing yet. The toggle is the next prompt.
 
-Two smaller notes carried into the next session:
+Nav now exists: an **Ask** pill in the header routes to `/new`, and the feed's empty state has an "Ask a question" button. `/me` still has no entry point — add one with the profile screen.
 
-- **The like heart on the feed and detail is display-only right now.** The current user's likes are fetched into a `Set` (separately from the feed query, per section 8) and drive the filled/empty state, but tapping does nothing yet. Section 11's like-button prompt wires up the toggle.
-- **No nav to `/new` or `/me` exists yet.** The header links to `/` only — deliberately, since linking to routes that aren't built yet just produces 404s. Add the nav alongside those screens.
+### 4a. Write path verified against the live project (Day 2)
+
+Run with a real anonymous JWT over PostgREST, not just type-checked. All four behaved correctly:
+
+| Check | Result |
+|---|---|
+| Insert a valid post as its author | `201`, returns the new `id` — so the `.select('id').single()` redirect works |
+| Feed query returns it with the author joined | `profiles` comes back as an **object**, not a one-element array |
+| 2-char title | `400`, `23514`, `violates check constraint "title_len"` |
+| Insert with someone else's `author_id` | `403`, `42501`, `violates row-level security policy` |
+
+Two things worth carrying forward:
+
+- **The author embed returns an object.** `src/lib/types.ts` normalizes both object and array shapes anyway, since PostgREST's to-one embed shape has varied across versions. Don't "simplify" that away on the strength of one observation.
+- **A non-author delete returns `200` with an empty array, not a `403`.** This is the exact "silently returns zero rows" symptom section 9 warns about — RLS filters the rows out rather than raising. So *any* future update or delete must check the returned row count to know whether it did anything; a missing `error` proves nothing.
+
+**Leftover test data to clear.** Verifying the write path necessarily created rows. Four anonymous users and one post titled `claude verification post`. One statement removes all of it — the cascade takes the post with its author:
+
+```sql
+delete from auth.users
+where is_anonymous = true
+  and created_at between '2026-08-29 18:50:00+00' and '2026-08-29 18:52:00+00';
+```
+
+The other anonymous users from Aug 29 are from browser testing and are deliberately left alone. Per 6c, clear site data in any browser that was pointed at a deleted identity.
 
 ---
 

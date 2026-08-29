@@ -2,6 +2,7 @@ import { BrowserRouter, Link, Route, Routes } from 'react-router-dom';
 import { SessionGate } from './components/SessionGate';
 import Feed from './routes/Feed';
 import PostDetail from './routes/PostDetail';
+import CreatePost from './routes/CreatePost';
 import NotFound from './routes/NotFound';
 
 export default function App() {
@@ -12,6 +13,9 @@ export default function App() {
           <Link className="app-title" to="/">
             qna
           </Link>
+          <Link className="btn-ask" to="/new">
+            Ask
+          </Link>
         </header>
 
         <main className="app-main">
@@ -19,6 +23,7 @@ export default function App() {
             <Routes>
               <Route path="/" element={<Feed />} />
               <Route path="/p/:id" element={<PostDetail />} />
+              <Route path="/new" element={<CreatePost />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
           </SessionGate>

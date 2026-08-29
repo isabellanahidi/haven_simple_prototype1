@@ -56,7 +56,17 @@ export default function Feed() {
   if (posts === null) return <SkeletonCards />;
 
   if (posts.length === 0) {
-    return <EmptyState title="No questions yet" body="Be the first to ask something." />;
+    return (
+      <EmptyState
+        title="No questions yet"
+        body="Be the first to ask something."
+        action={
+          <Link className="btn-primary" to="/new">
+            Ask a question
+          </Link>
+        }
+      />
+    );
   }
 
   return (

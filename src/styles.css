@@ -153,6 +153,158 @@ a {
   padding-bottom: calc(var(--sp-6) + env(safe-area-inset-bottom));
 }
 
+/* ---------- buttons ---------- */
+
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: var(--tap);
+  padding: var(--sp-3) var(--sp-4);
+  border-radius: var(--radius);
+  background: var(--accent);
+  color: #fff;
+  font-size: var(--fs-base);
+  font-weight: 650;
+}
+
+.btn-primary:disabled {
+  background: var(--border);
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
+
+.btn-primary:not(:disabled):active {
+  opacity: 0.85;
+}
+
+/* "Ask" in the header — pushed to the trailing edge. */
+.btn-ask {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--tap);
+  min-width: var(--tap);
+  padding: 0 var(--sp-4);
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font-size: var(--fs-base);
+  font-weight: 650;
+}
+
+.btn-ask:active {
+  opacity: 0.85;
+}
+
+.state-action {
+  margin-top: var(--sp-4);
+  display: flex;
+  justify-content: center;
+}
+
+.state-action .btn-primary {
+  width: auto;
+  padding-left: var(--sp-5);
+  padding-right: var(--sp-5);
+}
+
+/* ---------- composer ---------- */
+
+.composer {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: var(--sp-4);
+}
+
+.field {
+  margin-bottom: var(--sp-4);
+}
+
+.field-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-2);
+}
+
+.field-label {
+  font-size: var(--fs-base);
+  font-weight: 650;
+}
+
+.field-optional {
+  font-weight: 400;
+  color: var(--text-muted);
+}
+
+.counter {
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.counter.over {
+  color: var(--danger);
+  font-weight: 650;
+}
+
+.text-input {
+  display: block;
+  width: 100%;
+  /* 16px minimum, or Safari zooms the page on focus. */
+  font-size: var(--fs-base);
+  padding: var(--sp-3);
+  min-height: var(--tap);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.text-input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+  background: var(--surface);
+}
+
+.text-input:disabled {
+  opacity: 0.6;
+}
+
+.textarea {
+  resize: vertical;
+  min-height: 160px;
+  line-height: 1.5;
+  font-family: inherit;
+}
+
+.field-hint {
+  margin: var(--sp-2) 0 0;
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+}
+
+.field-hint.over {
+  color: var(--danger);
+}
+
+.form-error {
+  margin: 0 0 var(--sp-3);
+  padding: var(--sp-3);
+  border-radius: var(--radius-sm);
+  background: var(--like-soft);
+  color: var(--danger);
+  font-size: var(--fs-sm);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 /* ---------- back link ---------- */
 
 .back-link {
