@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase';
 import { useUserId } from '../lib/session';
 import { author, type Comment, type FeedPost } from '../lib/types';
 import { Byline } from '../components/Byline';
-import { PostStats } from '../components/PostStats';
+import { LikeButton } from '../components/LikeButton';
 import { EmptyState, ErrorState, Loading } from '../components/States';
 
 export default function PostDetail() {
@@ -107,11 +107,16 @@ export default function PostDetail() {
         <Byline author={author(post.profiles)} createdAt={post.created_at} />
         {post.body && <p className="detail-body">{post.body}</p>}
         <div className="post-meta">
-          <PostStats
-            likeCount={post.like_count}
-            commentCount={post.comment_count}
-            liked={liked}
-          />
+          <LikeButton postId={post.id} initialCount={post.like_count} initialLiked={liked} />
+          <span className="stat">
+            <span className="stat-icon" aria-hidden="true">
+              💬
+            </span>
+            {post.comment_count}
+            <span className="sr-only">
+              {post.comment_count === 1 ? ' reply' : ' replies'}
+            </span>
+          </span>
         </div>
       </article>
 

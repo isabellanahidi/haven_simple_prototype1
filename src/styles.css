@@ -397,7 +397,6 @@ a {
 }
 
 .post-card {
-  display: block;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -405,8 +404,13 @@ a {
   margin-bottom: var(--sp-3);
 }
 
-.post-card:active {
-  background: var(--accent-soft);
+/* The tappable region. The like button lives outside it. */
+.post-card-main {
+  display: block;
+}
+
+.post-card-main:active .post-title {
+  color: var(--accent);
 }
 
 .post-title {
@@ -462,15 +466,8 @@ a {
 .post-meta {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--sp-3);
-  margin-top: var(--sp-3);
-}
-
-.stat-row {
-  display: flex;
-  align-items: center;
   gap: var(--sp-4);
+  margin-top: var(--sp-2);
 }
 
 .stat {
@@ -490,6 +487,54 @@ a {
 
 .stat.liked {
   color: var(--like);
+}
+
+/* ---------- like button ---------- */
+
+.like-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.stat-btn {
+  /* 44x44 minimum comes from .stat; the negative margin keeps the enlarged
+     hit area from pushing the row around. */
+  margin-left: calc(-1 * var(--sp-2));
+  padding: 0 var(--sp-2);
+  border-radius: var(--radius-sm);
+  transition: color 120ms ease;
+}
+
+.stat-btn:active {
+  background: var(--like-soft);
+}
+
+.stat-btn.liked .stat-icon {
+  animation: like-pop 200ms ease-out;
+}
+
+@keyframes like-pop {
+  0% {
+    transform: scale(0.8);
+  }
+  60% {
+    transform: scale(1.25);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stat-btn.liked .stat-icon {
+    animation: none;
+  }
+}
+
+.like-error {
+  font-size: var(--fs-sm);
+  color: var(--danger);
 }
 
 /* ---------- post detail ---------- */

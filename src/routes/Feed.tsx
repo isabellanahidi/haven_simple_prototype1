@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase';
 import { useUserId } from '../lib/session';
 import { author, type FeedPost } from '../lib/types';
 import { Byline } from '../components/Byline';
-import { PostStats } from '../components/PostStats';
+import { LikeButton } from '../components/LikeButton';
 import { EmptyState, ErrorState, SkeletonCards } from '../components/States';
 
 export default function Feed() {
@@ -72,19 +72,31 @@ export default function Feed() {
   return (
     <ul className="feed-list">
       {posts.map((post) => (
-        <li key={post.id}>
-          <Link className="post-card" to={`/p/${post.id}`}>
+        // The like button is a real <button>, so it sits beside the card's
+        // <Link> rather than inside it — a button nested in an anchor is
+        // invalid, and tapping the heart would navigate.
+        <li className="post-card" key={post.id}>
+          <Link className="post-card-main" to={`/p/${post.id}`}>
             <h2 className="post-title">{post.title}</h2>
             {post.body && <p className="post-excerpt">{post.body}</p>}
-            <div className="post-meta">
-              <Byline author={author(post.profiles)} createdAt={post.created_at} />
-              <PostStats
-                likeCount={post.like_count}
-                commentCount={post.comment_count}
-                liked={likedIds.has(post.id)}
-              />
-            </div>
+            <Byline author={author(post.profiles)} createdAt={post.created_at} />
           </Link>
+          <div className="post-meta">
+            <LikeButton
+              postId={post.id}
+              initialCount={post.like_count}
+              initialLiked={likedIds.has(post.id)}
+            />
+            <Link className="stat" to={`/p/${post.id}`}>
+              <span className="stat-icon" aria-hidden="true">
+                💬
+              </span>
+              {post.comment_count}
+              <span className="sr-only">
+                {post.comment_count === 1 ? ' reply' : ' replies'}
+              </span>
+            </Link>
+          </div>
         </li>
       ))}
     </ul>

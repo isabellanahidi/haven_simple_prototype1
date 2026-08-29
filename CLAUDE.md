@@ -88,7 +88,7 @@ These were cut on purpose to protect the deadline. **Do not add them back** with
 - [x] Feed screen
 - [x] Post detail screen
 - [x] Create post screen
-- [ ] Like button
+- [x] Like button
 - [ ] Replies
 - [ ] Profile edit screen
 - [ ] Mobile polish pass
@@ -101,11 +101,11 @@ These were cut on purpose to protect the deadline. **Do not add them back** with
 
 ### Immediate next task
 
-**Feed (`/`), post detail (`/p/:id`), and create post (`/new`) are built.** All three compile and lint clean, and the write path is verified against the live project (see 4a). Next up is section 11's **like-button prompt**.
+**Feed (`/`), post detail (`/p/:id`), create post (`/new`), and the like toggle are built.** All compile and lint clean; the write path and all four like paths are verified against the live project (4a, 4b). Next up is section 11's **replies prompt**.
 
-One note carried into the next session: **the like heart is display-only.** The current user's likes are fetched into a `Set` (separately from the feed query, per section 8) and drive the filled/empty state on both the feed cards and the detail screen, but tapping does nothing yet. The toggle is the next prompt.
+One structural note that will matter again: **the feed card is no longer a single `<Link>`.** A `<button>` nested inside an `<a>` is invalid HTML, and tapping the heart would navigate to the post. So the card is a `<li class="post-card">` holding a `<Link class="post-card-main">` for the tappable region, with the like button as a sibling below it. Any future interactive control on a feed card has to go outside `.post-card-main` the same way.
 
-Nav now exists: an **Ask** pill in the header routes to `/new`, and the feed's empty state has an "Ask a question" button. `/me` still has no entry point — add one with the profile screen.
+Nav so far: an **Ask** pill in the header routes to `/new`, and the feed's empty state has an "Ask a question" button. `/me` still has no entry point — add one with the profile screen.
 
 ### 4a. Write path verified against the live project (Day 2)
 
@@ -123,15 +123,40 @@ Two things worth carrying forward:
 - **The author embed returns an object.** `src/lib/types.ts` normalizes both object and array shapes anyway, since PostgREST's to-one embed shape has varied across versions. Don't "simplify" that away on the strength of one observation.
 - **A non-author delete returns `200` with an empty array, not a `403`.** This is the exact "silently returns zero rows" symptom section 9 warns about — RLS filters the rows out rather than raising. So *any* future update or delete must check the returned row count to know whether it did anything; a missing `error` proves nothing.
 
-**Leftover test data to clear.** Verifying the write path necessarily created rows. Four anonymous users and one post titled `claude verification post`. One statement removes all of it — the cascade takes the post with its author:
+**Leftover test data to clear.** Verifying the write and like paths necessarily created rows: five anonymous users, plus one post titled `claude verification post`. One statement removes all of it — the cascade takes the post along with its author.
 
 ```sql
 delete from auth.users
 where is_anonymous = true
-  and created_at between '2026-08-29 18:50:00+00' and '2026-08-29 18:52:00+00';
+  and id in (
+    select id from public.profiles
+    where display_name in ('anon-8d1e','anon-7be1','anon-8e3b','anon-14f0','anon-611c')
+  );
 ```
 
-The other anonymous users from Aug 29 are from browser testing and are deliberately left alone. Per 6c, clear site data in any browser that was pointed at a deleted identity.
+**Named explicitly rather than scoped by time on purpose.** A `created_at between ...` window is the tempting form, but you are creating anonymous users yourself every time you load the app, so a window written now can sweep up an identity created later — and taking an identity takes its posts with it. Your own test identity `anon-566b` (created 18:47:36Z, author of `Concerned about period`) sits outside this list and is untouched.
+
+Per 6c, clear site data in any browser that was pointed at a deleted identity.
+
+### 4b. Like toggle verified against the live project (Day 2)
+
+The four paths the optimistic UI has to get right, run over PostgREST with a real JWT:
+
+| Step | Result | `like_count` |
+|---|---|---|
+| Insert a like | `201` | 0 → 1 |
+| Insert the same like again (double-tap) | `409`, `23505` `duplicate key ... "likes_pkey"` | **stays 1** |
+| Delete with `.select()` | `200`, returns the removed row | 1 → 0 |
+| Delete again, nothing to remove | `200`, returns `[]` | **stays 0** |
+
+The last two rows are the whole reason the delete uses `.select()`. Both return `200` and neither sets `error`; the returned row count is the only thing that distinguishes them.
+
+**What rollback means here is subtler than "undo the optimistic update."** The counter triggers fire only on an actual insert or delete, so on both anomalous paths the server's `like_count` never moved — but the *liked* state the user sees is already correct:
+
+- **`23505` on insert** — the like row already existed, so the count already included it. Keep `liked = true`, undo the increment only.
+- **Zero rows on delete** — there was no row to remove, so `liked = false` is the truth. Undo the decrement only.
+
+Rolling both fields back in these cases would put the UI *further* from the server, not closer. Only a genuine transport or policy error gets the full rollback.
 
 ---
 
