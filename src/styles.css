@@ -568,6 +568,68 @@ a {
   color: var(--text-muted);
 }
 
+/* ---------- comment composer ---------- */
+
+.comment-composer {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: var(--sp-3);
+  margin-bottom: var(--sp-3);
+}
+
+/* Nested inside a comment, the composer shouldn't look like a second card. */
+.comment .comment-composer {
+  border: none;
+  padding: var(--sp-3) 0 0;
+  margin-bottom: 0;
+}
+
+.comment-textarea {
+  min-height: 76px;
+}
+
+.composer-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  margin-top: var(--sp-2);
+}
+
+.composer-buttons {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.btn-quiet {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--tap);
+  padding: 0 var(--sp-3);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}
+
+.btn-quiet:active {
+  background: var(--bg);
+}
+
+.btn-compact {
+  width: auto;
+  padding: 0 var(--sp-4);
+}
+
+.reply-trigger {
+  margin-top: var(--sp-1);
+  margin-left: calc(-1 * var(--sp-3));
+  color: var(--accent);
+}
+
 /* ---------- comments ---------- */
 
 .comment-list {
@@ -589,6 +651,11 @@ a {
   font-size: var(--fs-base);
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+/* Optimistically inserted, not yet confirmed by the server. */
+.pending {
+  opacity: 0.55;
 }
 
 /* One level of nesting only — enforced by a DB trigger, so this

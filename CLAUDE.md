@@ -89,7 +89,7 @@ These were cut on purpose to protect the deadline. **Do not add them back** with
 - [x] Post detail screen
 - [x] Create post screen
 - [x] Like button
-- [ ] Replies
+- [x] Replies
 - [ ] Profile edit screen
 - [ ] Mobile polish pass
 - [ ] Deployed and tested on device
@@ -101,7 +101,7 @@ These were cut on purpose to protect the deadline. **Do not add them back** with
 
 ### Immediate next task
 
-**Feed (`/`), post detail (`/p/:id`), create post (`/new`), and the like toggle are built.** All compile and lint clean; the write path and all four like paths are verified against the live project (4a, 4b). Next up is section 11's **replies prompt**.
+**Feed (`/`), post detail (`/p/:id`), create post (`/new`), the like toggle, and replies are built.** All compile and lint clean, and every write path is verified against the live project (4a, 4b, 4c). Next up is section 11's **profile prompt (`/me`)** — the last unbuilt screen before the polish pass.
 
 One structural note that will matter again: **the feed card is no longer a single `<Link>`.** A `<button>` nested inside an `<a>` is invalid HTML, and tapping the heart would navigate to the post. So the card is a `<li class="post-card">` holding a `<Link class="post-card-main">` for the tappable region, with the like button as a sibling below it. Any future interactive control on a feed card has to go outside `.post-card-main` the same way.
 
@@ -123,14 +123,15 @@ Two things worth carrying forward:
 - **The author embed returns an object.** `src/lib/types.ts` normalizes both object and array shapes anyway, since PostgREST's to-one embed shape has varied across versions. Don't "simplify" that away on the strength of one observation.
 - **A non-author delete returns `200` with an empty array, not a `403`.** This is the exact "silently returns zero rows" symptom section 9 warns about — RLS filters the rows out rather than raising. So *any* future update or delete must check the returned row count to know whether it did anything; a missing `error` proves nothing.
 
-**Leftover test data to clear.** Verifying the write and like paths necessarily created rows: five anonymous users, plus one post titled `claude verification post`. One statement removes all of it — the cascade takes the post along with its author.
+**Leftover test data to clear.** Verifying the write, like, and reply paths necessarily created rows: seven anonymous users, plus one post titled `claude verification post`. One statement removes all of it — the cascade takes the post along with its author.
 
 ```sql
 delete from auth.users
 where is_anonymous = true
   and id in (
     select id from public.profiles
-    where display_name in ('anon-8d1e','anon-7be1','anon-8e3b','anon-14f0','anon-611c')
+    where display_name in ('anon-8d1e','anon-7be1','anon-8e3b','anon-14f0',
+                           'anon-611c','anon-0a66','anon-d4c6')
   );
 ```
 
@@ -157,6 +158,23 @@ The last two rows are the whole reason the delete uses `.select()`. Both return 
 - **Zero rows on delete** — there was no row to remove, so `liked = false` is the truth. Undo the decrement only.
 
 Rolling both fields back in these cases would put the UI *further* from the server, not closer. Only a genuine transport or policy error gets the full rollback.
+
+### 4c. Reply composer verified against the live project (Day 2)
+
+| Step | Result |
+|---|---|
+| Insert a top-level comment, selecting the embedded author back | `201`, returns the row **with `profiles` populated** |
+| Insert a depth-1 reply the same way | `201` |
+| Reply to a reply | `400`, `P0001`, `Only one level of replies is allowed` |
+| Empty body | `400`, `23514`, `violates check constraint "comment_body_len"` |
+
+**The insert can return its own author embed**, which is what makes the optimistic swap clean: the placeholder row is replaced by a real row that already carries the server's id, timestamp, and byline. No refetch.
+
+**The depth trigger's message is already written for a person.** `enforce_comment_depth()` raises it via `raise exception`, so PostgREST hands back `P0001` with the exact string, and it is displayed verbatim. The check-constraint wording is not — `new row for relation "comments" violates check constraint "comment_body_len"` gets translated. Both live in `src/lib/comments.ts`; **add a case there rather than inventing new copy at a call site.**
+
+**The UI never offers a reply-to-a-reply.** Only top-level comments render a Reply button, so the trigger is a backstop rather than a routine path — but the error is surfaced, not swallowed, because a silent no-op after typing a reply is the worst outcome.
+
+**Reply totals on the detail screen count the loaded list, not `posts.comment_count`.** An optimistic reply lands in the total immediately, and the number always matches what is on screen. The two can legitimately differ — RLS hides a `hidden` comment from the list while the counter trigger still counted it — and in that case the list is the honest number. The feed still reads `comment_count`, which is correct there: it is a cheap denormalized count and the feed refetches on mount.
 
 ---
 
