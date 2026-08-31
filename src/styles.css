@@ -632,6 +632,13 @@ a {
   min-height: 76px;
 }
 
+/* Signed out: the composer stays on screen but nothing inside it takes a tap,
+   so the wrapper's handler always fires and routes to sign-in. */
+.composer-locked textarea {
+  pointer-events: none;
+  color: var(--text-muted);
+}
+
 .composer-actions {
   display: flex;
   align-items: center;

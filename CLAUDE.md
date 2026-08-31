@@ -13,7 +13,7 @@
 A mobile-first, Reddit-style Q&A app. Prototype quality, but going in front of **real users for testing** — not just a screenshot demo. So data persistence, security, and basic abuse handling actually matter.
 
 ### Required features (the user's original ask)
-1. **Anonymous accounts** — users get an identity with no signup flow
+1. ~~**Anonymous accounts** — users get an identity with no signup flow~~ → **superseded, Aug 31.** See section 13. Signup is **email OTP**, and it gates *posting*, not *reading*.
 2. **Post questions** to a single community feed
 3. **Like** posts
 4. **Reply** to posts
@@ -30,7 +30,7 @@ A mobile-first, Reddit-style Q&A app. Prototype quality, but going in front of *
 |---|---|---|
 | Platform | **Mobile web**, opened in Safari, "Add to Home Screen" | App Store review takes days-to-weeks and would blow the 2-day deadline outright. User explicitly confirmed mobile web is acceptable. |
 | Frontend | **Vite + React + TypeScript, SPA** | No SSR, no React Server Components, no framework ceremony. Everything client-side. Fastest possible path for a solo dev. |
-| Backend | **Supabase** (hosted Postgres + Auth + RLS) | Has *native anonymous auth* (`signInAnonymously`), which maps 1:1 onto the "anonymous accounts" requirement with zero custom auth code. |
+| Backend | **Supabase** (hosted Postgres + Auth + RLS) | ~~Native anonymous auth maps 1:1 onto the "anonymous accounts" requirement.~~ **Anonymous auth was removed Aug 31 (section 13).** Supabase is still the right call — email OTP is the same one-liner (`signInWithOtp`) and RLS is unchanged — but the *reason* in this cell no longer applies. |
 | Security model | **Postgres Row Level Security** | The app is a pure client-side SPA, so there is no trusted server layer. RLS is the *only* thing protecting user data. This is non-negotiable. |
 | Hosting | **Vercel**, auto-deploy from GitHub | One-click, free, instant HTTPS (needed for Add to Home Screen). |
 | Routing | `react-router-dom` | v7 installed. |
@@ -64,7 +64,7 @@ These were cut on purpose to protect the deadline. **Do not add them back** with
 - Sorting options (chronological only, newest first)
 - Real-time subscriptions
 - A moderation UI (the user moderates by hand in the Supabase SQL editor)
-- Email/password auth — though see the "account fragility" risk below for an optional upgrade path
+- ~~Email/password auth~~ → **reinstated as email OTP, Aug 31.** No longer cut. See section 13.
 
 ---
 
@@ -215,7 +215,7 @@ git init && git add -A && git commit -m "init"
 ```
 Push to GitHub → import into Vercel → confirm the live URL loads on the user's phone.
 
-**Step 2 — Create the Supabase project.** ✅ Then: Dashboard → Authentication → Providers → toggle **Anonymous sign-ins** to ON. It is **off by default** and this is an easy thing to miss; anonymous auth silently fails without it.
+**Step 2 — Create the Supabase project.** ✅ ~~Then toggle Anonymous sign-ins ON.~~ **No longer required — anonymous auth was removed Aug 31 (section 13).** The toggle can be switched back off; leaving it on just means the endpoint stays open for anyone holding the anon key. What email OTP needs instead is Authentication → Providers → **Email** enabled, and the Magic Link template altered to emit `{{ .Token }}` instead of `{{ .ConfirmationURL }}` (see section 13).
 
 **Step 3 — Apply the schema.** ✅ Section 7 pasted into Dashboard → SQL Editor → Run.
 
@@ -234,43 +234,37 @@ Both values come from Supabase → Settings → API Keys (**Project URL** and th
 
 ## 6. Auth approach
 
-Every visitor gets a real row in `auth.users` and a matching `profiles` row, created automatically by a database trigger. There is no signup screen, no email, no password. Call this once at app startup:
+> **Rewritten Aug 31.** Anonymous auth is gone. The previous version of this
+> section described `ensureSession()` and a module-level promise cache that
+> called `signInAnonymously()` at startup; **that function no longer exists**
+> and `src/lib/supabase.ts` now exports only the client. The race it guarded
+> against cannot occur, because nothing creates a user implicitly any more.
 
-```ts
-// src/lib/supabase.ts
-import { createClient } from '@supabase/supabase-js';
-import type { Session } from '@supabase/supabase-js';
+**Reading needs no session. Writing does.** That split is the whole model.
 
-export const supabase = createClient(
-  import.meta.env.VITE_SUPABASE_URL!,
-  import.meta.env.VITE_SUPABASE_ANON_KEY!
-);
+`profiles` is `using (true)` and `posts` is `hidden = false or auth.uid() = author_id`, which passes on `hidden = false` when `auth.uid()` is null. So the anon role can read the feed, post detail, comments, and likes. **Verified against the live project on Aug 31** before any code was changed — posts, comments, likes, and profiles all returned rows both with the anon key as Bearer (exactly what supabase-js sends when signed out) and with no `Authorization` header at all.
 
-let sessionPromise: Promise<Session | null> | null = null;
+The client pieces:
 
-export function ensureSession() {
-  if (!sessionPromise) {
-    sessionPromise = (async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session) return session;
-      const { data, error } = await supabase.auth.signInAnonymously();
-      if (error) { sessionPromise = null; throw error; }
-      return data.session;
-    })();
-  }
-  return sessionPromise;
-}
-```
+| File | Role |
+|---|---|
+| `src/lib/supabase.ts` | The client, and nothing else |
+| `src/components/SessionProvider.tsx` | Reads the session once, subscribes to `onAuthStateChange`, **never gates children** |
+| `src/lib/session.ts` | `useUserId(): string \| null` and `useSession(): { userId, loading }` |
+| `src/components/RequireAuth.tsx` | Wraps `/new` and `/me`; redirects to `/signin` carrying the destination |
+| `src/lib/authRedirect.ts` | `useSignInRedirect()` for in-place prompts on the like button and reply composer |
 
-Default display names are generated by the trigger as `anon-` plus the first four characters of the user's UUID. Users can change this on the profile screen.
+**`useUserId()` returning null is a normal state, not a bug.** It used to throw. Every consumer must handle null.
 
-**Why the promise is cached at module level.** The naive version calls `getSession()` then `signInAnonymously()`. If two callers race — React StrictMode double-invoking an effect in development is the usual cause — both see no session and both create a user. Only one token lands in localStorage; the other user is orphaned on creation. Caching the in-flight promise means concurrent callers share one request. Resetting to `null` on error keeps failures retryable. The cache is per page load, which is correct: a refresh re-reads the token from localStorage and creates nothing new.
+**Why `loading` exists separately from `userId`.** "Signed out" and "we haven't looked yet" are different, and conflating them makes `RequireAuth` bounce a signed-in user who deep-links straight to `/me` before `getSession()` resolves. `RequireAuth` waits on `loading` before redirecting.
 
-Evidence this was real: among the 9 test users, three pairs were created within microseconds of each other (`e13441b3`/`be4141aa` identical to the microsecond; `8f2927ea`/`17f9f90c` 27µs apart; `c267b69e`/`5dec26d8` 80ms apart). **Caveat — the repo copy of `supabase.ts` already contains the caching, so those pairs may predate the fix rather than survive it. Worth confirming the file matches the code above before assuming it's handled.**
+**Signed-out affordances are shown, not hidden.** The like button renders with its real count and the reply composer renders in full; tapping either routes to `/signin` with the current location attached. Hiding them would misrepresent the post as having no way to engage.
+
+**The `handle_new_user` trigger is unaffected and still needed.** It fires on insert into `auth.users` regardless of how the user got there, so an email-OTP signup still gets its `profiles` row automatically. The default display name is still `anon-` plus the first four characters of the UUID — which is now a slightly odd choice of prefix for a non-anonymous account, but it is cosmetic and the profile screen can change it. **No schema change was needed for this migration.**
 
 ### 6a. Diagnostic screen — RETIRED
 
-The throwaway diagnostic `App.tsx` was deleted when the feed landed. `App.tsx` is now the real app shell (router + header + `<SessionGate>`).
+The throwaway diagnostic `App.tsx` was deleted when the feed landed. `App.tsx` is now the real app shell (router + header + `<SessionProvider>`).
 
 **The env-var guard it provided was kept, moved up into `src/main.tsx`.** That guard is still worth having, and the reasoning behind it hasn't changed: `createClient()` throws on a blank URL, and because `App` imports `supabase.ts` transitively, a plain top-level import would throw during page load and produce a white screen — the worst possible failure mode on a phone, where there is no console to check. So `main.tsx` reads both `import.meta.env` values *before* importing anything Supabase-touching, and:
 
@@ -279,7 +273,7 @@ The throwaway diagnostic `App.tsx` was deleted when the feed landed. `App.tsx` i
 
 Because the import is lazy, `App.tsx` and every screen below it can import `supabase.ts` at module top level normally. **Known reading:** both vars `MISSING` means the build had no env vars at all — locally, `.env.local` is blank or the dev server wasn't restarted; on Vercel, the deployment predates the variables being saved.
 
-Session bootstrap moved into `src/components/SessionGate.tsx`, which calls `ensureSession()` once and blocks rendering until there's a user id, surfacing failures as an on-page error. Screens read the id via `useUserId()` (`src/lib/session.ts`), so **no screen ever has to handle a null user.**
+~~Session bootstrap moved into `SessionGate.tsx`...~~ **Superseded Aug 31.** `SessionGate` was deleted; `SessionProvider` replaces it and never blocks. Screens read `useUserId()`, which **can now be null** — see section 6.
 
 ### 6b. Template cleanup — DONE
 
@@ -625,17 +619,19 @@ if (liked) {
 
 ## 9. Known risks and gotchas
 
-**Account fragility (the biggest one).** Anonymous sessions live in the browser's localStorage. If a user clears Safari data, uses a different browser, or switches devices, that identity and all its posts are **orphaned with no recovery path**. Since this is going in front of real users, they should be told this in a one-line banner. Optional day-2 upgrade if time allows: `supabase.auth.updateUser({ email })` converts an anonymous user into a permanent one *in place*, preserving all their posts.
+**~~Account fragility (the biggest one)~~ — largely solved by email OTP, Aug 31.** This was the top risk in the project for a reason: an anonymous identity lived only in localStorage, so clearing Safari data, switching browsers, or changing devices orphaned it and every post attached to it, with no way back. **An email address is a recovery path.** Losing local storage now costs a re-verification, not an identity. The one-line warning banner this section used to call for is no longer warranted and was never built — do not add it.
 
-**Seven-day eviction is the sharpest edge of that fragility, and it needs no user action at all.** iOS Safari deletes localStorage after seven days without interaction with the site. A tester who tries the app, comes back the following week, and finds themselves a stranger with none of their posts has done nothing wrong. Section 12 is the mitigation.
+What remains is narrower and worth stating plainly: a user who loses access to the *email address* still loses the account, and OTP delivery now sits on the critical path for sign-in, so mail deliverability is a dependency the app did not previously have.
 
-**UNVERIFIED — the Home Screen container may not inherit Safari's storage.** A Home Screen web app on iOS may get a storage container separate from Safari's. If it does, the sequence "open the link in Safari → post → Add to Home Screen" produces a tester who arrives in the installed app with empty localStorage, is issued a **fresh anonymous identity**, and finds their earlier post orphaned under the Safari identity — the exact failure section 12 exists to prevent, arriving through the fix for it.
+**Seven-day eviction: downgraded from data loss to friction.** iOS Safari still deletes localStorage after seven days without interaction, and that still ends the session. But the returning tester is now someone who signs in again and finds all their posts, not a stranger locked out of their own history. Section 12's Home Screen install is still worth having — it avoids the re-auth entirely — it is simply no longer load-bearing for data retention.
 
-This is being checked on a device. **Do not write code against either assumption until it is settled**, and do not let a plausible-sounding answer from a model substitute for the device test — the behaviour has varied across iOS versions and is not reliably documented. If the containers do turn out to be separate, the fix is a matter of instruction rather than code: tell testers to add to Home Screen *first* and only then start posting.
+**UNVERIFIED, and now low-stakes — the Home Screen container may not inherit Safari's storage.** A Home Screen web app on iOS may get a storage container separate from Safari's. Under anonymous auth this was severe: "open in Safari → post → Add to Home Screen" would have issued a **fresh identity** in the installed app and orphaned the earlier post. Under email OTP the same sequence produces a sign-in prompt, and signing in restores the same account and the same posts.
 
-**Zero-friction abuse.** Anonymous auth means anyone can post instantly and repeatedly. If the link goes out publicly, enable Supabase's CAPTCHA for anonymous sign-ins. Keep the SQL editor handy for flipping `hidden` or deleting rows.
+Still worth confirming on device, because it changes what testers should be told. But it is no longer a data-loss path, and **it no longer blocks anything.**
 
-**Anonymous users count toward Supabase MAU** and accumulate in `auth.users` — one row per visitor, including bots. Worth periodically deleting old anonymous users with no posts. See 6c for the scoped delete.
+**Abuse friction changed shape, it did not disappear.** Requiring an email before posting raises the cost of casual spam a long way above anonymous auth, but disposable-address services make it a speed bump rather than a wall. Rate limits on OTP sends matter now in a way they did not before — an open `signInWithOtp` endpoint is an email-sending endpoint pointed at addresses the sender chooses. Keep the SQL editor handy for flipping `hidden` or deleting rows.
+
+**MAU accounting improved.** Under anonymous auth, `auth.users` grew by one row per *visitor*, bots included, and every one counted toward MAU. Under email OTP, only people who choose to sign up create a row, and readers cost nothing. The scoped-delete recipes in 6c still work for clearing test identities.
 
 **RLS is the classic timeline-killer.** Get the policies right at the start. Debugging "why does my insert silently return zero rows" at midnight is miserable — that symptom is almost always a failing RLS policy, and it has no error message to work from.
 
@@ -723,11 +719,15 @@ One prompt per screen. Commit and push after each — deploy failures are trivia
 
 **Status: shipped.** This is deliberately its own section rather than a line in the polish pass, because it is not polish.
 
-### Why it is a data-retention feature
+### Why it was a data-retention feature — and what changed on Aug 31
 
-iOS Safari evicts localStorage after **seven days without interaction** with the site. The whole identity model rests on a JWT in localStorage: no email, no password, no recovery path. So a tester who tries the app on a Monday and comes back the next week is silently handed a brand-new anonymous user, with every post they wrote now belonging to an identity they can no longer reach. They did nothing wrong — no cleared data, no new device.
+**Read this whole subsection before acting on it; the conclusion moved.**
 
-**Home Screen web apps keep their own use counter and are exempt from that eviction.** So `apple-mobile-web-app-capable` plus Add to Home Screen is the mechanism that makes a multi-week test possible at all. Treating it as cosmetic — "makes the install feel app-like" — undersells it badly enough to lose testers' data.
+The original reasoning: iOS Safari evicts localStorage after **seven days without interaction**, the identity model rested entirely on a JWT in localStorage with no email and no recovery path, so a tester returning the next week was silently handed a brand-new user and lost every post they had written. Home Screen web apps keep their own use counter and are exempt, which made `apple-mobile-web-app-capable` the mechanism that made a multi-week test possible at all.
+
+**That reasoning was sound, and it expired the moment anonymous auth did (section 13).** With email OTP the eviction still ends the session, but the returning tester signs in and finds everything intact. The install went from load-bearing to genuinely nice-to-have: it removes a re-authentication, not a data loss.
+
+Nothing shipped here needs undoing — a standalone install is still the better experience, and the work is done. But **do not cite the seven-day argument as a reason to prioritise anything else**; it no longer carries that weight.
 
 ### What shipped
 
@@ -775,3 +775,47 @@ One acknowledged gap: the env-var guard in `main.tsx` renders before `App` is im
 ### Deployment note
 
 `vercel.json` uses `rewrites`, which Vercel applies **after** the filesystem check, so `/manifest.json` is served as the real file rather than being swallowed by the SPA catch-all. This would not hold with the legacy `routes` key, which runs before the filesystem — if that rewrite is ever rewritten, re-check that `/manifest.json` still returns JSON and not `index.html`.
+
+---
+
+## 13. Architecture change — anonymous auth removed (Aug 31)
+
+**Anonymous auth is gone.** Signup will be **email OTP**, and it gates **posting, not reading**.
+
+### The shape of it
+
+| | Before | After |
+|---|---|---|
+| Identity | `signInAnonymously()` at startup, one user per visitor | Email OTP, one user per person who chooses to sign up |
+| Reading | Required a session (because one always existed) | **No session needed** |
+| Writing | Any visitor | Requires a session |
+| Recovery | None — localStorage was the account | The email address |
+
+### Why reading works signed-out without touching the schema
+
+The select policies already permitted the anon role. `profiles` is `using (true)`; `posts` is `hidden = false or auth.uid() = author_id`, and the left side passes when `auth.uid()` is null. **Verified against the live project before any code changed** — posts, comments, likes, and profiles all returned rows with the anon key as Bearer and with no `Authorization` header. No policy, table, or trigger was altered in this migration.
+
+### What changed in the code
+
+- **`src/lib/supabase.ts`** — `ensureSession()` and its module-level promise cache deleted. Exports the client only.
+- **`SessionGate.tsx` deleted**, replaced by **`SessionProvider.tsx`**, which subscribes to `onAuthStateChange` and never gates children.
+- **`useUserId()` returns `string | null`.** It used to throw on null. Null is now normal.
+- **`RequireAuth`** wraps `/new` and `/me`, redirecting to `/signin` with `state.from` set.
+- **Like button and reply composer stay visible when signed out** and route to `/signin` on tap. The composer renders in full with its textarea made inert in CSS, so a tap anywhere in it lands on the wrapper.
+- **`/signin` is a stub.** It reads `location.state.from` and says where it would return you. Building it is the next task.
+- No account-fragility banner was ever built, and it should not be — see section 9.
+
+### Two traps found while doing it
+
+**The Supabase client is untyped, so null user ids type-check.** `author_id: null` and `.eq('id', null)` both compile. The first fails as a not-null violation at the database; the second silently matches zero rows, which per section 4a is indistinguishable from an RLS refusal. `RequireAuth` makes both unreachable, but `CreatePost` and `Profile` carry explicit `if (!userId) return` guards anyway, because a type checker will not catch it if the routing is ever rearranged.
+
+**`loading` has to be distinct from `userId === null`.** Redirecting on null alone bounces a signed-in user who deep-links to `/me` before `getSession()` resolves.
+
+### Still to do
+
+1. **Build `/signin`** — `signInWithOtp({ email })`, then `verifyOtp({ email, token, type: 'email' })`. Return the user to `location.state.from`.
+2. **Dashboard**: Authentication → Providers → **Email** on. Alter the **Magic Link** template to emit `{{ .Token }}` instead of `{{ .ConfirmationURL }}` — the template body is what decides whether Supabase sends a link or a code. Both facts are from the Supabase docs (Email Templates; Passwordless email logins).
+3. **Sign-out affordance** — there is none anywhere in the UI.
+4. **Anonymous sign-ins can be toggled off** in the dashboard. It is currently still on.
+5. **Existing anonymous users still exist in `auth.users`**, including the ones that own the current test posts. Decide whether to keep them readable or clear them; the scoped deletes in 6c still apply.
+6. The `handle_new_user` default display name is still `anon-XXXX`, which now reads oddly for an email account. Cosmetic.

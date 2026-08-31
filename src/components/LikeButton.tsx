@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type MouseEvent } from 'react';
 import { supabase } from '../lib/supabase';
 import { useUserId } from '../lib/session';
+import { useSignInRedirect } from '../lib/authRedirect';
 
 type Props = {
   postId: string;
@@ -12,6 +13,7 @@ type Props = {
 
 export function LikeButton({ postId, initialCount, initialLiked }: Props) {
   const userId = useUserId();
+  const requireSignIn = useSignInRedirect();
   const [liked, setLiked] = useState(initialLiked);
   const [count, setCount] = useState(initialCount);
   const [failed, setFailed] = useState(false);
@@ -34,6 +36,13 @@ export function LikeButton({ postId, initialCount, initialLiked }: Props) {
     // here anyway so a tap on the heart never bubbles into a navigation.
     event.preventDefault();
     event.stopPropagation();
+
+    // Stays visible when signed out rather than disappearing — the count is
+    // worth showing, and the tap is what asks for a session.
+    if (!userId) {
+      requireSignIn();
+      return;
+    }
 
     const wasLiked = liked;
     const prevCount = count;
@@ -99,8 +108,10 @@ export function LikeButton({ postId, initialCount, initialLiked }: Props) {
         type="button"
         className={liked ? 'stat stat-btn liked' : 'stat stat-btn'}
         onClick={toggle}
-        aria-pressed={liked}
-        aria-label={liked ? 'Unlike this post' : 'Like this post'}
+        aria-pressed={userId ? liked : undefined}
+        aria-label={
+          !userId ? 'Sign in to like this post' : liked ? 'Unlike this post' : 'Like this post'
+        }
       >
         <span className="stat-icon" aria-hidden="true">
           {liked ? '♥' : '♡'}

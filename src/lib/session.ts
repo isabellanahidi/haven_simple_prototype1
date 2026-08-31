@@ -1,11 +1,20 @@
 import { createContext, useContext } from 'react';
 
-/** The current anonymous user's id. Null only above <SessionGate>. */
-export const SessionContext = createContext<string | null>(null);
+export type SessionState = {
+  /** The signed-in user's id, or null. **Null is a normal state**, not a bug —
+   *  the feed and post detail are readable with no session at all. */
+  userId: string | null;
+  /** True until the first session read resolves. Distinguishes "signed out"
+   *  from "we don't know yet", which matters before redirecting anyone. */
+  loading: boolean;
+};
 
-/** Read the signed-in user's id. Safe to call anywhere under <SessionGate>. */
-export function useUserId(): string {
-  const userId = useContext(SessionContext);
-  if (!userId) throw new Error('useUserId() must be called inside <SessionGate>');
-  return userId;
+export const SessionContext = createContext<SessionState>({ userId: null, loading: true });
+
+export function useSession(): SessionState {
+  return useContext(SessionContext);
+}
+
+export function useUserId(): string | null {
+  return useContext(SessionContext).userId;
 }

@@ -2,6 +2,31 @@ import { useState, type FormEvent } from 'react';
 import { charLength } from '../lib/text';
 import { COMMENT_MAX } from '../lib/comments';
 
+/**
+ * The composer as a signed-out visitor sees it: present and legible, not
+ * hidden. The textarea is inert (`pointer-events: none` in CSS), so a tap
+ * anywhere in the block lands on the wrapper and asks for a session.
+ */
+export function LockedComposer({ label, onTap }: { label: string; onTap: () => void }) {
+  return (
+    <div className="comment-composer composer-locked" onClick={onTap}>
+      <textarea
+        className="text-input textarea comment-textarea"
+        placeholder={label}
+        readOnly
+        tabIndex={-1}
+        aria-hidden="true"
+      />
+      <div className="composer-actions">
+        <span className="counter" />
+        <button type="button" className="btn-primary btn-compact" onClick={onTap}>
+          Sign in to reply
+        </button>
+      </div>
+    </div>
+  );
+}
+
 type Props = {
   placeholder: string;
   submitLabel: string;

@@ -40,6 +40,7 @@ export default function Profile() {
   const [justSaved, setJustSaved] = useState(false);
 
   useEffect(() => {
+    if (!userId) return;
     let cancelled = false;
 
     (async () => {
@@ -114,6 +115,10 @@ export default function Profile() {
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     if (!valid || !dirty || saving) return;
+    // RequireAuth guarantees this, but the client is untyped: .eq('id', null)
+    // would match no rows, which per section 4a is indistinguishable from an
+    // RLS refusal.
+    if (!userId) return;
 
     setSaving(true);
     setSaveError(null);

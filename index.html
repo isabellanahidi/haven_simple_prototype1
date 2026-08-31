@@ -10,9 +10,11 @@
     <meta name="theme-color" content="#ffffff" />
 
     <!-- iOS reads these, not the manifest, when deciding whether Add to Home
-         Screen produces a standalone web app. That standalone container is
-         what exempts the app from the seven-day localStorage eviction that
-         would otherwise orphan a tester's anonymous identity. -->
+         Screen produces a standalone web app. The standalone container is
+         exempt from the seven-day localStorage eviction, so an installed app
+         keeps its session across a gap in use. Since sign-in became email OTP
+         that saves a re-authentication rather than an account — see CLAUDE.md
+         sections 12 and 13. -->
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />

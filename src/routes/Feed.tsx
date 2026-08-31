@@ -19,6 +19,10 @@ export default function Feed() {
     (async () => {
       // Two queries, not one. Embedding likes(user_id) into the feed select
       // would pull every like row for every post; this pulls only mine.
+      //
+      // Signed out there are no likes of mine to fetch, so that query is
+      // skipped entirely — the feed itself still loads, because the posts
+      // select policy passes for the anon role on hidden = false.
       const [feed, likes] = await Promise.all([
         supabase
           .from('posts')
@@ -30,7 +34,7 @@ export default function Feed() {
           )
           .order('created_at', { ascending: false })
           .limit(50),
-        supabase.from('likes').select('post_id').eq('user_id', userId),
+        userId ? supabase.from('likes').select('post_id').eq('user_id', userId) : null,
       ]);
 
       if (cancelled) return;
@@ -43,7 +47,7 @@ export default function Feed() {
       setPosts((feed.data ?? []) as unknown as FeedPost[]);
       // A failed likes query is not worth blocking the feed over — hearts just
       // render empty.
-      setLikedIds(new Set(likes.data?.map((l) => l.post_id as string) ?? []));
+      setLikedIds(new Set(likes?.data?.map((l) => l.post_id as string) ?? []));
     })();
 
     return () => {

@@ -6,7 +6,8 @@ import { commentErrorMessage } from '../lib/comments';
 import { author, type Author, type Comment, type FeedPost } from '../lib/types';
 import { Byline } from '../components/Byline';
 import { LikeButton } from '../components/LikeButton';
-import { CommentComposer } from '../components/CommentComposer';
+import { CommentComposer, LockedComposer } from '../components/CommentComposer';
+import { useSignInRedirect } from '../lib/authRedirect';
 import { EmptyState, ErrorState, Loading } from '../components/States';
 
 const COMMENT_SELECT = 'id, parent_id, body, created_at, profiles(display_name, avatar_emoji)';
@@ -17,6 +18,7 @@ type LocalComment = Comment & { pending?: boolean };
 export default function PostDetail() {
   const { id } = useParams<{ id: string }>();
   const userId = useUserId();
+  const requireSignIn = useSignInRedirect();
 
   const [post, setPost] = useState<FeedPost | null>(null);
   const [comments, setComments] = useState<LocalComment[] | null>(null);
@@ -47,12 +49,18 @@ export default function PostDetail() {
           .select(COMMENT_SELECT)
           .eq('post_id', id)
           .order('created_at', { ascending: true }),
-        supabase.from('likes').select('post_id').eq('user_id', userId).eq('post_id', id),
-        supabase
-          .from('profiles')
-          .select('display_name, avatar_emoji')
-          .eq('id', userId)
-          .maybeSingle(),
+        // Both are about *me*, so both are skipped when there is no me. The
+        // post and its comments still load — those selects pass for anon.
+        userId
+          ? supabase.from('likes').select('post_id').eq('user_id', userId).eq('post_id', id)
+          : null,
+        userId
+          ? supabase
+              .from('profiles')
+              .select('display_name, avatar_emoji')
+              .eq('id', userId)
+              .maybeSingle()
+          : null,
       ]);
 
       if (cancelled) return;
@@ -68,8 +76,8 @@ export default function PostDetail() {
 
       setPost(postRes.data as unknown as FeedPost);
       setComments((commentRes.data ?? []) as unknown as LocalComment[]);
-      setLiked((likeRes.data?.length ?? 0) > 0);
-      setMe((meRes.data as Author | null) ?? null);
+      setLiked((likeRes?.data?.length ?? 0) > 0);
+      setMe((meRes?.data as Author | null) ?? null);
     })();
 
     return () => {
@@ -80,6 +88,7 @@ export default function PostDetail() {
   const submitComment = useCallback(
     async (body: string, parentId: string | null): Promise<string | null> => {
       if (!id) return 'This post has no id.';
+      if (!userId) return 'Sign in to reply.';
 
       const tempId = `pending-${crypto.randomUUID()}`;
       const optimistic: LocalComment = {
@@ -183,11 +192,15 @@ export default function PostDetail() {
         {commentCount === 1 ? '1 reply' : `${commentCount} replies`}
       </h2>
 
-      <CommentComposer
-        placeholder="Add a reply…"
-        submitLabel="Reply"
-        onSubmit={(body) => submitComment(body, null)}
-      />
+      {userId ? (
+        <CommentComposer
+          placeholder="Add a reply…"
+          submitLabel="Reply"
+          onSubmit={(body) => submitComment(body, null)}
+        />
+      ) : (
+        <LockedComposer label="Sign in to reply…" onTap={requireSignIn} />
+      )}
 
       {threads.length === 0 ? (
         <EmptyState title="No replies yet" body="Nobody has answered this one." />
@@ -205,7 +218,7 @@ export default function PostDetail() {
                 <button
                   type="button"
                   className="btn-quiet reply-trigger"
-                  onClick={() => setReplyingTo(comment.id)}
+                  onClick={() => (userId ? setReplyingTo(comment.id) : requireSignIn())}
                 >
                   Reply
                 </button>

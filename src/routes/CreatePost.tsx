@@ -35,6 +35,9 @@ export default function CreatePost() {
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     if (!valid || submitting) return;
+    // RequireAuth guarantees this, but the client is untyped: author_id: null
+    // would type-check and then fail as a not-null violation at the database.
+    if (!userId) return;
 
     setSubmitting(true);
     setError(null);
