@@ -101,7 +101,7 @@ These were cut on purpose to protect the deadline. **Do not add them back** with
 
 ### Immediate next task
 
-**Every screen is built** — feed, post detail, create post, like toggle, replies, and profile edit. All compile and lint clean, and every write path is verified against the live project (4a–4d). What remains is section 11's **final polish prompt**: safe-area insets, keyboard avoidance on the composers, the account-fragility banner, and optionally the PWA manifest.
+**Every screen is built** — feed, post detail, create post, like toggle, replies, and profile edit. All compile and lint clean, and every write path is verified against the live project (4a–4d). The Home Screen install is shipped too (section 12). What remains is section 11's **final polish prompt**: safe-area insets, keyboard avoidance on the composers, and the account-fragility banner — plus supplying the three PNG icons listed in section 12.
 
 Nav is complete: **Me** and **Ask** in the header, plus "Ask a question" buttons in the feed's and profile's empty states.
 
@@ -627,6 +627,12 @@ if (liked) {
 
 **Account fragility (the biggest one).** Anonymous sessions live in the browser's localStorage. If a user clears Safari data, uses a different browser, or switches devices, that identity and all its posts are **orphaned with no recovery path**. Since this is going in front of real users, they should be told this in a one-line banner. Optional day-2 upgrade if time allows: `supabase.auth.updateUser({ email })` converts an anonymous user into a permanent one *in place*, preserving all their posts.
 
+**Seven-day eviction is the sharpest edge of that fragility, and it needs no user action at all.** iOS Safari deletes localStorage after seven days without interaction with the site. A tester who tries the app, comes back the following week, and finds themselves a stranger with none of their posts has done nothing wrong. Section 12 is the mitigation.
+
+**UNVERIFIED — the Home Screen container may not inherit Safari's storage.** A Home Screen web app on iOS may get a storage container separate from Safari's. If it does, the sequence "open the link in Safari → post → Add to Home Screen" produces a tester who arrives in the installed app with empty localStorage, is issued a **fresh anonymous identity**, and finds their earlier post orphaned under the Safari identity — the exact failure section 12 exists to prevent, arriving through the fix for it.
+
+This is being checked on a device. **Do not write code against either assumption until it is settled**, and do not let a plausible-sounding answer from a model substitute for the device test — the behaviour has varied across iOS versions and is not reliably documented. If the containers do turn out to be separate, the fix is a matter of instruction rather than code: tell testers to add to Home Screen *first* and only then start posting.
+
 **Zero-friction abuse.** Anonymous auth means anyone can post instantly and repeatedly. If the link goes out publicly, enable Supabase's CAPTCHA for anonymous sign-ins. Keep the SQL editor handy for flipping `hidden` or deleting rows.
 
 **Anonymous users count toward Supabase MAU** and accumulate in `auth.users` — one row per visitor, including bots. Worth periodically deleting old anonymous users with no posts. See 6c for the scoped delete.
@@ -653,7 +659,7 @@ if (liked) {
 - Inputs need `font-size: 16px` or larger, otherwise Safari auto-zooms on focus.
 - Tap targets ≥ 44×44px.
 - Consider `-webkit-tap-highlight-color: transparent` on buttons.
-- A `manifest.json` plus `apple-mobile-web-app-capable` makes the home-screen install feel closer to an app.
+- A `manifest.json` plus `apple-mobile-web-app-capable` does far more than make the install *feel* app-like — it is what keeps sessions alive past seven days. See section 12.
 - **iOS Safari caches aggressively.** When verifying a fresh deploy, use a Private tab or clear website data, otherwise you may be reading a stale bundle and misdiagnosing.
 - **Deep links need the SPA rewrite.** `vercel.json` is in place; verify by loading `/p/test` directly and reloading. A 404 there means every shared post link is broken.
 
@@ -698,12 +704,74 @@ One prompt per screen. Commit and push after each — deploy failures are trivia
 
 > Build `/me` per section 8 — edit display_name, bio, avatar_emoji, respecting the DB length constraints. List my own posts below. Add nav so I can reach this screen from the feed.
 
+**Home Screen install — DONE, and not part of polish.** See section 12. It was moved out of the prompt below because it is a data-retention mechanism, not a cosmetic one.
+
 **Final polish:**
 
-> Mobile polish pass: safe-area insets on any fixed bottom element, keyboard-avoidance on the composers, relative timestamps. Add a dismissible one-line banner warning that clearing Safari data will orphan the account, per section 9. Add a PWA manifest and apple-mobile-web-app-capable meta tags so Add to Home Screen feels app-like.
+> Mobile polish pass: safe-area insets on any fixed bottom element, keyboard-avoidance on the composers, relative timestamps. Add a dismissible one-line banner warning that clearing Safari data will orphan the account, per section 9.
 
 ### Still open / undecided
 - Whether to add the optional email-upgrade path for account persistence
-- Whether a PWA manifest is worth the time (folded into the polish prompt above; drop it if the clock is tight)
+- ~~Whether a PWA manifest is worth the time~~ — **resolved, and the framing was wrong.** It is not a nice-to-have; it is what keeps a returning tester's identity alive. See section 12.
 - Why the LAN dev URL doesn't reach the iPhone
 - ~~Whether the repo's `supabase.ts` already matched the promise-cached version~~ — **resolved.** `src/lib/supabase.ts` matches the section 6 listing exactly, caching included, and was not modified while building the feed. So the duplicate-user pairs among the 9 test users predate the fix; they aren't evidence of a surviving race.
+- **UNVERIFIED, being checked on device:** whether a Home Screen web app gets a storage container separate from Safari's. Consequences in section 9. Do not write code against either answer yet.
+
+---
+
+## 12. Home Screen install (manifest + iOS meta tags)
+
+**Status: shipped.** This is deliberately its own section rather than a line in the polish pass, because it is not polish.
+
+### Why it is a data-retention feature
+
+iOS Safari evicts localStorage after **seven days without interaction** with the site. The whole identity model rests on a JWT in localStorage: no email, no password, no recovery path. So a tester who tries the app on a Monday and comes back the next week is silently handed a brand-new anonymous user, with every post they wrote now belonging to an identity they can no longer reach. They did nothing wrong — no cleared data, no new device.
+
+**Home Screen web apps keep their own use counter and are exempt from that eviction.** So `apple-mobile-web-app-capable` plus Add to Home Screen is the mechanism that makes a multi-week test possible at all. Treating it as cosmetic — "makes the install feel app-like" — undersells it badly enough to lose testers' data.
+
+### What shipped
+
+`public/manifest.json` (Vite serves `public/` at the site root, so it lands at `/manifest.json`):
+
+| Field | Value | Why |
+|---|---|---|
+| `display` | `standalone` | No URL bar; this is what makes it a web app rather than a bookmark |
+| `start_url` / `scope` | `/` | The icon always opens the feed; all in-app navigation stays inside the container |
+| `theme_color` | `#ffffff` | Matches `--surface`, the header |
+| `background_color` | `#f6f7f9` | Matches `--bg`, the launch screen |
+
+In `index.html`: `<link rel="manifest">`, `apple-mobile-web-app-capable`, `apple-mobile-web-app-status-bar-style` (`default`, so content does not slide under the clock — the header already handles `env(safe-area-inset-top)` either way), `apple-mobile-web-app-title`, and `mobile-web-app-capable` as the non-prefixed standard. `viewport-fit=cover` was already there and is untouched.
+
+### Icons — still outstanding, and cosmetic only
+
+**Nothing icon-related is wired up, on purpose.** The repo has no PNG icon assets; `public/favicon.svg` and `public/icons.svg` are Vite template leftovers (a purple Vite bolt and a social-icon sprite), and **iOS ignores SVG for the home-screen icon** regardless.
+
+To finish, drop into `public/`:
+
+- `apple-touch-icon.png` — **180×180**, no transparency, no rounded corners (iOS masks it)
+- `icon-192.png` — 192×192
+- `icon-512.png` — 512×512
+
+Then uncomment the `apple-touch-icon` link in `index.html` and add an `icons` array to the manifest. **iOS ignores the manifest's `icons` for the home-screen icon and reads `<link rel="apple-touch-icon">` instead**, so both are genuinely needed — the manifest entries serve Android and desktop installs.
+
+Until then Add to Home Screen still works and standalone mode still works; iOS just uses a screenshot of the page as the icon. **The seven-day fix does not depend on the icons.**
+
+### Standalone navigation audit
+
+In standalone mode there is no back gesture and no URL bar, so every route must be leavable from within the page. Walked and confirmed:
+
+| Route | Way out |
+|---|---|
+| `/` | Home. Header carries Me and Ask |
+| `/p/:id` | "← Feed", on both the loaded and not-found branches |
+| `/new` | "← Feed". On success it redirects to `/p/:id`, which has its own |
+| `/me` | "← Feed" |
+| `*` | "← Back to the feed" |
+
+**The real guarantee is structural, not per-route:** the header lives in `App.tsx` *outside* both `<Routes>` and `<SessionGate>`, so it renders on every route and through every loading and error state — including the three `ErrorState` screens, which have no back link of their own. **Keep it outside `SessionGate`.** Moving it inside would strand a user on the auth-failure screen with no way to navigate.
+
+One acknowledged gap: the env-var guard in `main.tsx` renders before `App` is imported, so it has no header. In standalone mode that screen is a dead end — but it only appears when the deployment has no Supabase credentials, when there is nowhere useful to navigate to anyway.
+
+### Deployment note
+
+`vercel.json` uses `rewrites`, which Vercel applies **after** the filesystem check, so `/manifest.json` is served as the real file rather than being swallowed by the SPA catch-all. This would not hold with the legacy `routes` key, which runs before the filesystem — if that rewrite is ever rewritten, re-check that `/manifest.json` still returns JSON and not `index.html`.

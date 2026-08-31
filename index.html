@@ -3,7 +3,26 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />      <title>qna</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>qna</title>
+
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="theme-color" content="#ffffff" />
+
+    <!-- iOS reads these, not the manifest, when deciding whether Add to Home
+         Screen produces a standalone web app. That standalone container is
+         what exempts the app from the seven-day localStorage eviction that
+         would otherwise orphan a tester's anonymous identity. -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="qna" />
+
+    <!-- TODO: <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+         Deliberately absent: the repo has no PNG icon assets, and pointing at
+         a file that does not exist gives iOS a 404 to fall back from rather
+         than a missing tag. Add to Home Screen and standalone mode both work
+         without it; iOS just uses a screenshot of the page as the icon. -->
   </head>
   <body>
     <div id="root"></div>

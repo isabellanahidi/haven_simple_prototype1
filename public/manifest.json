@@ -1,0 +1,11 @@
+{
+  "name": "qna — anonymous Q&A",
+  "short_name": "qna",
+  "description": "Ask and answer questions anonymously.",
+  "lang": "en",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "theme_color": "#ffffff",
+  "background_color": "#f6f7f9"
+}
