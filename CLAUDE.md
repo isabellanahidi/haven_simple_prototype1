@@ -633,6 +633,7 @@ Still worth confirming on device, because it changes what testers should be told
 
 **MAU accounting improved.** Under anonymous auth, `auth.users` grew by one row per *visitor*, bots included, and every one counted toward MAU. Under email OTP, only people who choose to sign up create a row, and readers cost nothing. The scoped-delete recipes in 6c still work for clearing test identities.
 
+
 **RLS is the classic timeline-killer.** Get the policies right at the start. Debugging "why does my insert silently return zero rows" at midnight is miserable — that symptom is almost always a failing RLS policy, and it has no error message to work from.
 
 **A stale session token survives a user deletion.** `getSession()` doesn't check the server. See 6c — this is a self-inflicted-only condition, but it presents as a mysterious foreign-key failure.
