@@ -17,6 +17,10 @@
   --text-muted: #616874;
   --accent: #3d5afe;
   --accent-soft: #eef1ff;
+  /* Filled buttons. Deliberately separate from --accent, which still drives
+     link colour, focus rings, and selected states — those are still blue and
+     were left alone on purpose. */
+  --button: #6e2639;
   --like: #e0245e;
   --like-soft: #fdeef3;
   --danger: #b3261e;
@@ -174,7 +178,7 @@ a {
   min-height: var(--tap);
   padding: var(--sp-3) var(--sp-4);
   border-radius: var(--radius);
-  background: var(--accent);
+  background: var(--button);
   color: #fff;
   font-size: var(--fs-base);
   font-weight: 650;
@@ -205,7 +209,7 @@ a {
   min-width: var(--tap);
   padding: 0 var(--sp-4);
   border-radius: 999px;
-  background: var(--accent);
+  background: var(--button);
   color: #fff;
   font-size: var(--fs-base);
   font-weight: 650;
