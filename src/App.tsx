@@ -17,7 +17,10 @@ export default function App() {
               loading and error state. See CLAUDE.md section 12. */}
           <header className="app-header">
             <Link className="app-title" to="/">
-              qna
+              {/* alt="" on purpose — the adjacent text already names the app,
+                  so announcing it twice is noise for a screen reader. */}
+              <img className="app-logo" src="/logo.svg" alt="" />
+              Haven
             </Link>
             <Link className="btn-quiet nav-link" to="/me">
               Me

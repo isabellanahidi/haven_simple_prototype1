@@ -6,11 +6,15 @@
 
 :root {
   /* color */
-  --bg: #f6f7f9;
+  --bg: #fbf0f2;
   --surface: #ffffff;
   --border: #e3e6ea;
   --text: #16181c;
-  --text-muted: #6b7280;
+  /* Darkened from #6b7280 with the pink background. On the old near-white bg
+     that gray measured 4.51:1 — barely AA; against #fbf0f2 it drops to 4.34
+     and fails. This clears 4.5 with margin (5.04 on pink, 5.61 on white)
+     while keeping muted text visibly secondary. */
+  --text-muted: #616874;
   --accent: #3d5afe;
   --accent-soft: #eef1ff;
   --like: #e0245e;
@@ -142,6 +146,13 @@ a {
   min-height: var(--tap);
   display: flex;
   align-items: center;
+  gap: var(--sp-2);
+}
+
+.app-logo {
+  height: 28px;
+  width: auto;
+  display: block;
 }
 
 .app-main {
@@ -305,7 +316,9 @@ a {
   min-height: var(--tap);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  background: var(--bg);
+  /* Explicitly --surface, not --bg: the page background is pink now, and an
+     input has to keep reading as a white surface. */
+  background: var(--surface);
   -webkit-appearance: none;
   appearance: none;
 }
