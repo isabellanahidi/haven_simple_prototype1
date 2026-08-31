@@ -18,11 +18,9 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="qna" />
 
-    <!-- TODO: <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
-         Deliberately absent: the repo has no PNG icon assets, and pointing at
-         a file that does not exist gives iOS a 404 to fall back from rather
-         than a missing tag. Add to Home Screen and standalone mode both work
-         without it; iOS just uses a screenshot of the page as the icon. -->
+    <!-- iOS ignores the manifest's icons array for the home-screen icon and
+         reads this instead. The manifest entries serve Android and desktop. -->
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
   </head>
   <body>
     <div id="root"></div>
