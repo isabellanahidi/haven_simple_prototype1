@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useUserId } from '../lib/session';
 import { charLength } from '../lib/text';
@@ -26,6 +26,8 @@ type MyPost = {
 
 export default function Profile() {
   const userId = useUserId();
+  const navigate = useNavigate();
+  const [signingOut, setSigningOut] = useState(false);
 
   const [saved, setSaved] = useState<Saved | null>(null);
   const [posts, setPosts] = useState<MyPost[] | null>(null);
@@ -286,6 +288,23 @@ export default function Profile() {
           ))}
         </ul>
       )}
+
+      {/* Signing out only clears the local session. The account and every post
+          on it survive, and the same email brings them back. */}
+      <div className="signout-row">
+        <button
+          type="button"
+          className="btn-signout"
+          disabled={signingOut}
+          onClick={async () => {
+            setSigningOut(true);
+            await supabase.auth.signOut();
+            navigate('/', { replace: true });
+          }}
+        >
+          {signingOut ? 'Signing out…' : 'Sign out'}
+        </button>
+      </div>
     </>
   );
 }

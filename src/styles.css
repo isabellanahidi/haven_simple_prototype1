@@ -231,6 +231,78 @@ a {
   padding-right: var(--sp-5);
 }
 
+/* ---------- sign in ---------- */
+
+.signin-intro {
+  margin-top: 0;
+  margin-bottom: var(--sp-4);
+}
+
+.signin-email {
+  color: var(--text);
+  word-break: break-all;
+}
+
+.signin-edit {
+  margin-left: calc(-1 * var(--sp-3));
+  margin-bottom: var(--sp-2);
+  color: var(--accent);
+}
+
+/* Codes are read digit by digit off a notification banner, so they get more
+   tracking and size than a normal input. Stays >=16px, per section 9. */
+.otp-input {
+  font-size: var(--fs-xl);
+  letter-spacing: 0.35em;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.signin-resend {
+  display: flex;
+  justify-content: center;
+  margin-top: var(--sp-2);
+}
+
+.form-notice {
+  margin: 0 0 var(--sp-3);
+  padding: var(--sp-3);
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+  color: var(--text);
+  font-size: var(--fs-sm);
+}
+
+/* ---------- sign out ---------- */
+
+.signout-row {
+  display: flex;
+  justify-content: center;
+  margin-top: var(--sp-5);
+}
+
+.btn-signout {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--tap);
+  padding: 0 var(--sp-5);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--danger);
+  font-size: var(--fs-base);
+  font-weight: 600;
+}
+
+.btn-signout:active {
+  background: var(--like-soft);
+}
+
+.btn-signout:disabled {
+  opacity: 0.6;
+}
+
 /* ---------- avatar picker ---------- */
 
 .emoji-grid {
