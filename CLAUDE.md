@@ -80,7 +80,7 @@ These were cut on purpose to protect the deadline. **Do not add them back** with
 - [x] `src/App.tsx` — temporary diagnostic screen (see section 6a)
 - [x] `.env.local` created and **values filled in**; gitignored via `*.local`
 - [x] **Schema applied** — all of section 7 run in the SQL Editor
-- [x] **`handle_new_user` trigger confirmed firing** — 9 anonymous users, each with a matching `profiles` row and a correct `anon-XXXX` display name (verified with the join query in 7a)
+- [x] **`handle_new_user` trigger confirmed firing** — verified Aug 29 against the then-current `anon-XXXX` format, which **no longer exists**; the trigger now generates two-word pseudonyms (section 7)
 - [x] **Enumerate RLS + triggers explicitly** — run both queries in 7a; the join query proves the profile trigger works but does not confirm RLS is on or that the other three triggers exist
 - [x] **Env vars added to Vercel project settings** — status unconfirmed; assume not done
 - [x] Auth bootstrap verified end to end on a real iPhone (verified on desktop only)
@@ -260,7 +260,7 @@ The client pieces:
 
 **Signed-out affordances are shown, not hidden.** The like button renders with its real count and the reply composer renders in full; tapping either routes to `/signin` with the current location attached. Hiding them would misrepresent the post as having no way to engage.
 
-**The `handle_new_user` trigger is unaffected and still needed.** It fires on insert into `auth.users` regardless of how the user got there, so an email-OTP signup still gets its `profiles` row automatically. The default display name is still `anon-` plus the first four characters of the UUID — which is now a slightly odd choice of prefix for a non-anonymous account, but it is cosmetic and the profile screen can change it. **No schema change was needed for this migration.**
+**The `handle_new_user` trigger is unaffected and still needed.** It fires on insert into `auth.users` regardless of how the user got there, so an email-OTP signup still gets its `profiles` row automatically. **No schema change was needed for the auth migration itself.** The display name it generates was changed separately on Aug 31, from `anon-` plus four hex characters to a two-word pseudonym — see section 7.
 
 ### 6a. Diagnostic screen — RETIRED
 
@@ -324,7 +324,8 @@ Four tables: `profiles`, `posts`, `comments`, `likes`. **Applied.** Kept here as
 -- ============================================================
 -- Anonymous Q&A prototype — Supabase schema
 -- Paste into Supabase Dashboard -> SQL Editor -> Run
--- Prereq: Authentication -> Providers -> Anonymous sign-ins = ON
+-- Prereq: Authentication -> Providers -> Email = ON (section 13).
+--         Anonymous sign-ins are no longer used.
 -- ============================================================
 
 -- ------------------------------------------------------------
@@ -337,19 +338,97 @@ create table public.profiles (
   avatar_emoji  text not null default '🙂',
   created_at    timestamptz not null default now(),
   constraint display_name_len check (char_length(display_name) between 1 and 30),
-  constraint bio_len check (char_length(bio) <= 300)
+  constraint bio_len check (char_length(bio) <= 300),
+  -- Added Aug 31. handle_new_user's collision retry depends on this existing;
+  -- without it the retry loop is dead code and duplicate names go unnoticed.
+  constraint profiles_display_name_unique unique (display_name)
 );
 
--- Auto-create a profile whenever an auth user (including anonymous) appears.
+-- Auto-create a profile whenever an auth user appears.
 create or replace function public.handle_new_user()
 returns trigger
 language plpgsql
 security definer
 set search_path = public
 as $$
+declare
+  adjectives constant text[] := array[
+    'alpine', 'amber', 'autumn', 'boreal', 'breezy', 'chalky',
+    'clear', 'cloudless', 'coastal', 'cobalt', 'copper', 'crisp',
+    'dewy', 'drizzly', 'early', 'eastern', 'evening', 'flinty',
+    'foggy', 'frosted', 'glassy', 'golden', 'grassy', 'gravelly',
+    'hazy', 'highland', 'indigo', 'inland', 'jade', 'leafy',
+    'linen', 'lowland', 'lunar', 'marbled', 'misty', 'moonlit',
+    'morning', 'northern', 'ochre', 'opal', 'overcast', 'paper',
+    'pebbled', 'quartz', 'quiet', 'rainy', 'rocky', 'rustic',
+    'sandy', 'shaded', 'silver', 'slate', 'snowy', 'solar',
+    'southern', 'starlit', 'sunlit', 'twilight', 'umber', 'upland',
+    'velvet', 'verdant', 'western', 'windy', 'wintry', 'wooded'
+  ];
+  nouns constant text[] := array[
+    'alder', 'arbor', 'ash', 'aspen', 'basin', 'beacon',
+    'birch', 'bracken', 'bramble', 'branch', 'brook', 'canyon',
+    'cedar', 'cove', 'creek', 'dune', 'elm', 'ember',
+    'fern', 'field', 'fjord', 'forest', 'glade', 'glen',
+    'grove', 'harbor', 'heath', 'hedge', 'hill', 'hollow',
+    'isle', 'juniper', 'lake', 'lantern', 'ledge', 'lichen',
+    'marsh', 'meadow', 'mesa', 'moor', 'moss', 'oak',
+    'orchard', 'pine', 'pond', 'prairie', 'quarry', 'reed',
+    'reef', 'ridge', 'river', 'sedge', 'shore', 'spruce',
+    'stone', 'stream', 'summit', 'thicket', 'thistle', 'tide',
+    'timber', 'trail', 'tundra', 'valley', 'vine', 'willow'
+  ];
+  candidate text;
+  id_hex    text := replace(new.id::text, '-', '');
+  attempt   int;
 begin
+  -- Phase 1: five tries at a clean two-word name, no digits. Max 16 chars.
+  for attempt in 1..5 loop
+    candidate := adjectives[1 + floor(random() * 66)::int]
+                 || nouns[1 + floor(random() * 66)::int];
+    begin
+      insert into public.profiles (id, display_name)
+      values (new.id, candidate);
+      return new;
+    exception when unique_violation then
+      -- Distinguish a name clash from a duplicate profile WITHOUT relying on
+      -- the constraint's name. If a row already exists for this id then the
+      -- primary key is what conflicted, which is a genuine fault and must
+      -- surface. Otherwise it was display_name, so retry.
+      if exists (select 1 from public.profiles where id = new.id) then
+        raise;
+      end if;
+    end;
+  end loop;
+
+  -- Phase 2: five more with a random two-digit suffix. Max 18 chars.
+  for attempt in 1..5 loop
+    candidate := adjectives[1 + floor(random() * 66)::int]
+                 || nouns[1 + floor(random() * 66)::int]
+                 || lpad(floor(random() * 100)::int::text, 2, '0');
+    begin
+      insert into public.profiles (id, display_name)
+      values (new.id, candidate);
+      return new;
+    exception when unique_violation then
+      if exists (select 1 from public.profiles where id = new.id) then
+        raise;
+      end if;
+    end;
+  end loop;
+
+  -- Terminal fallback, seeded from the user's own id. Max 28 chars.
+  --
+  -- This cannot collide between two users: the suffix is 12 hex characters
+  -- (48 bits) taken from a UUID that is already unique, so two users would
+  -- have to share a 12-character id prefix before the name could repeat.
+  -- No exception handler here on purpose -- reaching this line and still
+  -- failing would be a real fault, not a name collision, and should not be
+  -- swallowed.
   insert into public.profiles (id, display_name)
-  values (new.id, 'anon-' || substr(new.id::text, 1, 4));
+  values (new.id, adjectives[1 + floor(random() * 66)::int]
+                 || nouns[1 + floor(random() * 66)::int]
+                 || substr(id_hex, 1, 12));
   return new;
 end;
 $$;
@@ -524,7 +603,7 @@ create policy likes_delete on public.likes
 
 Keep these saved in the SQL Editor. Useful now and any time something behaves oddly.
 
-**Users and their profiles.** Every row must have a populated `profile_id`, and `display_name` must be `anon-` plus the first four chars of `id`.
+**Users and their profiles.** Every row must have a populated `profile_id`. `display_name` is now a two-word lowercase pseudonym such as `quietfern` — **the old `anon-` + four-hex format is gone**, so a name matching that old pattern means the row predates Aug 31, not that things are working. Names are unique, so distinct names must equal row count.
 ```sql
 select
   u.id,
@@ -555,7 +634,7 @@ where tgname in ('on_auth_user_created','comments_depth_check',
 **Backfill orphaned profiles.** Safe to run when there are none — affects zero rows. Only needed if a user was created before the trigger existed.
 ```sql
 insert into public.profiles (id, display_name)
-select u.id, 'anon-' || substr(u.id::text, 1, 4)
+select u.id, 'recovered' || substr(replace(u.id::text, '-', ''), 1, 12)
 from auth.users u
 left join public.profiles p on p.id = u.id
 where p.id is null;
@@ -819,4 +898,4 @@ The select policies already permitted the anon role. `profiles` is `using (true)
 3. **Sign-out affordance** — there is none anywhere in the UI.
 4. **Anonymous sign-ins can be toggled off** in the dashboard. It is currently still on.
 5. **Existing anonymous users still exist in `auth.users`**, including the ones that own the current test posts. Decide whether to keep them readable or clear them; the scoped deletes in 6c still apply.
-6. The `handle_new_user` default display name is still `anon-XXXX`, which now reads oddly for an email account. Cosmetic.
+6. ~~The `handle_new_user` default display name is still `anon-XXXX`.~~ **Done Aug 31** — now a two-word pseudonym, with a unique constraint and collision retry. See section 7.
