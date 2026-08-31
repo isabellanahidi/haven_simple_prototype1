@@ -353,30 +353,30 @@ set search_path = public
 as $$
 declare
   adjectives constant text[] := array[
-    'alpine', 'amber', 'autumn', 'boreal', 'breezy', 'chalky',
-    'clear', 'cloudless', 'coastal', 'cobalt', 'copper', 'crisp',
-    'dewy', 'drizzly', 'early', 'eastern', 'evening', 'flinty',
-    'foggy', 'frosted', 'glassy', 'golden', 'grassy', 'gravelly',
-    'hazy', 'highland', 'indigo', 'inland', 'jade', 'leafy',
-    'linen', 'lowland', 'lunar', 'marbled', 'misty', 'moonlit',
-    'morning', 'northern', 'ochre', 'opal', 'overcast', 'paper',
-    'pebbled', 'quartz', 'quiet', 'rainy', 'rocky', 'rustic',
-    'sandy', 'shaded', 'silver', 'slate', 'snowy', 'solar',
-    'southern', 'starlit', 'sunlit', 'twilight', 'umber', 'upland',
-    'velvet', 'verdant', 'western', 'windy', 'wintry', 'wooded'
+    'alpine', 'amber', 'autumn', 'boreal', 'breezy', 'clear',
+    'cloudless', 'coastal', 'cobalt', 'copper', 'crisp', 'dappled',
+    'drizzly', 'early', 'eastern', 'evening', 'foggy', 'frosted',
+    'gilded', 'glassy', 'golden', 'grassy', 'gravelly', 'hazy',
+    'highland', 'indigo', 'inland', 'jade', 'leafy', 'linen',
+    'lowland', 'lunar', 'marbled', 'misty', 'moonlit', 'morning',
+    'northern', 'ochre', 'opal', 'overcast', 'paper', 'pebbled',
+    'quartz', 'quiet', 'rainy', 'rocky', 'rustic', 'sandy',
+    'shaded', 'silver', 'slate', 'snowy', 'solar', 'southern',
+    'starlit', 'sunlit', 'twilight', 'umber', 'upland', 'velvet',
+    'verdant', 'western', 'winding', 'windy', 'wintry', 'wooded'
   ];
   nouns constant text[] := array[
     'alder', 'arbor', 'ash', 'aspen', 'basin', 'beacon',
     'birch', 'bracken', 'bramble', 'branch', 'brook', 'canyon',
-    'cedar', 'cove', 'creek', 'dune', 'elm', 'ember',
-    'fern', 'field', 'fjord', 'forest', 'glade', 'glen',
-    'grove', 'harbor', 'heath', 'hedge', 'hill', 'hollow',
-    'isle', 'juniper', 'lake', 'lantern', 'ledge', 'lichen',
+    'cedar', 'clover', 'cove', 'creek', 'dune', 'elm',
+    'ember', 'fern', 'field', 'fjord', 'forest', 'glade',
+    'glen', 'grove', 'harbor', 'heath', 'hedge', 'hill',
+    'isle', 'juniper', 'lake', 'lantern', 'laurel', 'ledge',
     'marsh', 'meadow', 'mesa', 'moor', 'moss', 'oak',
     'orchard', 'pine', 'pond', 'prairie', 'quarry', 'reed',
-    'reef', 'ridge', 'river', 'sedge', 'shore', 'spruce',
-    'stone', 'stream', 'summit', 'thicket', 'thistle', 'tide',
-    'timber', 'trail', 'tundra', 'valley', 'vine', 'willow'
+    'reef', 'ridge', 'river', 'rowan', 'sedge', 'shore',
+    'spruce', 'stone', 'stream', 'summit', 'thicket', 'thistle',
+    'tide', 'timber', 'trail', 'valley', 'vine', 'willow'
   ];
   candidate text;
   id_hex    text := replace(new.id::text, '-', '');
@@ -423,8 +423,7 @@ begin
   -- (48 bits) taken from a UUID that is already unique, so two users would
   -- have to share a 12-character id prefix before the name could repeat.
   -- No exception handler here on purpose -- reaching this line and still
-  -- failing would be a real fault, not a name collision, and should not be
-  -- swallowed.
+  -- failing would be a real fault, not a name collision.
   insert into public.profiles (id, display_name)
   values (new.id, adjectives[1 + floor(random() * 66)::int]
                  || nouns[1 + floor(random() * 66)::int]
@@ -432,6 +431,20 @@ begin
   return new;
 end;
 $$;
+
+**Wordlist exclusion standard.** This is a women's health app, so the wordlist is curated against a rule, not assembled by taste. Words are drawn only from **weather, landscape, plants, materials, and light**. A word is excluded if it could read as a remark about the person rather than a label:
+
+| Excluded because | Words removed so far |
+|---|---|
+| Names or evokes a condition | `lichen` (lichen sclerosus, a vulvar condition discussed on these forums) |
+| Describes skin, hair, or eye colour | `dewy`, `ivory`, `olive`, `wheaten`, `hazel`, `bronze`, `coral` |
+| Reads as emptiness or infertility | `hollow`, `fallow` |
+| Names a symptom | `faint` |
+| Reads as a mood or temperament | `stony`, `glacial`, `distant`, `drifting`, `brisk`, `hidden` |
+| Reads bleak | `chalky`, `flinty`, `tundra` |
+| Refers to age | `elder`, `ancient` |
+
+**Do not reintroduce any word in that table.** When adding words, keep both arrays at exactly 66, keep them alphabetical, and re-check: no duplicates within an array, no word in both, and no same-root cross pair (`mossy` + `moss` would yield `mossymoss`). The 1–30 `display_name_len` ceiling is set by the longest word in each array — currently `cloudless` (9) and `bracken` (7), giving 16 plain, 18 with the digit suffix, and 28 at the terminal fallback. A longer word than either raises all three.
 
 create trigger on_auth_user_created
   after insert on auth.users
