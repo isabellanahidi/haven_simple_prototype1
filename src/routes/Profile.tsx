@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
-import { useUserId } from '../lib/session';
+import { useSession } from '../lib/session';
 import { charLength } from '../lib/text';
 import {
   AVATAR_CHOICES,
@@ -12,6 +12,7 @@ import {
 } from '../lib/profile';
 import { relativeTime } from '../lib/time';
 import { EmptyState, ErrorState, Loading } from '../components/States';
+import { SetPasswordForm } from '../components/SetPasswordForm';
 
 type Saved = { display_name: string; bio: string; avatar_emoji: string };
 
@@ -25,9 +26,11 @@ type MyPost = {
 };
 
 export default function Profile() {
-  const userId = useUserId();
+  const { userId, hasPassword } = useSession();
   const navigate = useNavigate();
   const [signingOut, setSigningOut] = useState(false);
+  const [editingPassword, setEditingPassword] = useState(false);
+  const [passwordSaved, setPasswordSaved] = useState(false);
 
   const [saved, setSaved] = useState<Saved | null>(null);
   const [posts, setPosts] = useState<MyPost[] | null>(null);
@@ -288,6 +291,59 @@ export default function Profile() {
           ))}
         </ul>
       )}
+
+      {/* Changing a password here is the same updateUser() call as the
+          optional step after sign-up, and it works for the same reason: there
+          is a live session. It is NOT a reset flow, and there deliberately
+          isn't one — see CLAUDE.md section 14. Anyone who has forgotten theirs
+          signs in with a code and lands back here. */}
+      <section className="account-section">
+        <h2 className="section-heading">Password</h2>
+
+        {editingPassword ? (
+          <SetPasswordForm
+            idPrefix="account"
+            submitLabel={hasPassword ? 'Change password' : 'Save password'}
+            busyLabel="Saving…"
+            onDone={() => {
+              setEditingPassword(false);
+              setPasswordSaved(true);
+            }}
+            secondary={
+              <button
+                type="button"
+                className="btn-quiet"
+                onClick={() => setEditingPassword(false)}
+              >
+                Cancel
+              </button>
+            }
+          />
+        ) : (
+          <>
+            <p className="field-hint account-note">
+              {hasPassword
+                ? 'You can sign in with a password or with an emailed code.'
+                : "You sign in with an emailed code. A password is optional and just saves you the wait."}
+            </p>
+            {passwordSaved && (
+              <p className="form-notice" role="status">
+                Password saved.
+              </p>
+            )}
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => {
+                setPasswordSaved(false);
+                setEditingPassword(true);
+              }}
+            >
+              {hasPassword ? 'Change password' : 'Create a password'}
+            </button>
+          </>
+        )}
+      </section>
 
       {/* Signing out only clears the local session. The account and every post
           on it survive, and the same email brings them back. */}

@@ -7,9 +7,17 @@ export type SessionState = {
   /** True until the first session read resolves. Distinguishes "signed out"
    *  from "we don't know yet", which matters before redirecting anyone. */
   loading: boolean;
+  /** Whether this user has set a password, read from user metadata — Supabase
+   *  offers no other way to ask. Always false when signed out. See
+   *  `hasPassword()` in src/lib/password.ts. */
+  hasPassword: boolean;
 };
 
-export const SessionContext = createContext<SessionState>({ userId: null, loading: true });
+export const SessionContext = createContext<SessionState>({
+  userId: null,
+  loading: true,
+  hasPassword: false,
+});
 
 export function useSession(): SessionState {
   return useContext(SessionContext);

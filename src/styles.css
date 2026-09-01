@@ -194,6 +194,34 @@ a {
   opacity: 0.85;
 }
 
+/* The quieter twin of .btn-primary — same shape and tap target, outlined
+   rather than filled, for a second real action on the same form. */
+.btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: var(--tap);
+  margin-top: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  font-size: var(--fs-base);
+  font-weight: 650;
+}
+
+.btn-secondary:disabled {
+  color: var(--text-muted);
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.btn-secondary:not(:disabled):active {
+  background: var(--bg);
+}
+
 /* Header nav sits at the trailing edge; "Me" starts the group. */
 .nav-link {
   margin-left: auto;
@@ -271,6 +299,16 @@ a {
   background: var(--accent-soft);
   color: var(--text);
   font-size: var(--fs-sm);
+}
+
+/* ---------- account controls (password, sign out) ---------- */
+
+.account-section {
+  margin-top: var(--sp-6);
+}
+
+.account-note {
+  margin: 0 0 var(--sp-3);
 }
 
 /* ---------- sign out ---------- */

@@ -906,9 +906,129 @@ The select policies already permitted the anon role. `profiles` is `using (true)
 
 ### Still to do
 
-1. **Build `/signin`** — `signInWithOtp({ email })`, then `verifyOtp({ email, token, type: 'email' })`. Return the user to `location.state.from`.
+1. ~~**Build `/signin`**~~ — **done.** `signInWithOtp` → `verifyOtp`, returning to `location.state.from`. It now also carries an optional password path — see section 14.
 2. **Dashboard**: Authentication → Providers → **Email** on. Alter the **Magic Link** template to emit `{{ .Token }}` instead of `{{ .ConfirmationURL }}` — the template body is what decides whether Supabase sends a link or a code. Both facts are from the Supabase docs (Email Templates; Passwordless email logins).
-3. **Sign-out affordance** — there is none anywhere in the UI.
-4. **Anonymous sign-ins can be toggled off** in the dashboard. It is currently still on.
+3. ~~**Sign-out affordance**~~ — **done.** It sits at the bottom of `/me`, under the password controls.
+4. **Anonymous sign-ins can be toggled off** in the dashboard. **Still on** — confirmed against `/auth/v1/settings` on Sep 1 (`"anonymous_users": true`, `"email": true`).
 5. **Existing anonymous users still exist in `auth.users`**, including the ones that own the current test posts. Decide whether to keep them readable or clear them; the scoped deletes in 6c still apply.
 6. ~~The `handle_new_user` default display name is still `anon-XXXX`.~~ **Done Aug 31** — now a two-word pseudonym, with a unique constraint and collision retry. See section 7.
+
+---
+
+## 14. Password as an optional second login method (Sep 1)
+
+**OTP is still the only signup path and the only recovery path.** A password is
+a convenience laid on top of it — never a replacement, and never the way back
+in.
+
+### Why there is no reset flow, and must not be one
+
+A password-reset email is a **link**. Links open in Safari. Safari is
+potentially a different storage container from the Home Screen app (section 9,
+still unverified on device), so a reset completed in Safari can land a session
+in the wrong container and strand the person who was trying to get back in.
+
+So: **"forgot password" is the existing code path.** Sign in with an emailed
+code, land on `/me`, set a new one. Nothing to build, nothing to explain, and
+one fewer email template to get right. **Do not add `resetPasswordForEmail`.**
+
+The one place this shows through is `reauthentication_needed`, which only
+appears if "Secure password change" is switched on in the dashboard *and* the
+session is over 24 hours old. `setPasswordErrorMessage` answers it by pointing
+at the same code path rather than by calling `reauthenticate()`.
+
+### The shape of it
+
+| Where | What |
+|---|---|
+| `/signin` | One form, email + optional password. **"Email me a code" is the primary button**; "Sign in with password" is secondary and only enables once a password is typed. |
+| After `verifyOtp` | If the account has no password, an optional, skippable "Add a password?" step before the redirect. |
+| `/me` | A "Create a password" / "Change password" control in an account section above sign out. |
+
+Both password-setting call sites are the **same component**,
+`src/components/SetPasswordForm.tsx`, so there is exactly one `updateUser` call
+in the app. Neither is a reset: both run on a live session.
+
+### `has_password` in user metadata, and why
+
+**Supabase gives the client no way to ask whether a password exists.** A
+password-less OTP account and a password account carry the same `email`
+identity, and `signInWithPassword` returns the same `invalid_credentials` for a
+wrong password, a nonexistent account, and an account with no password —
+[documented deliberately](https://supabase.com/docs/reference/javascript/auth-signinwithpassword),
+so a signed-out stranger can't probe which.
+
+So we record it ourselves. Every password write is a **single call**:
+
+```ts
+await supabase.auth.updateUser({ password, data: { has_password: true } });
+```
+
+**One call, not two, on purpose.** Two calls could leave the password set and
+the flag unset, which the client would then read as "no password" forever.
+
+`hasPassword()` in `src/lib/password.ts` reads it back off the session user, and
+`SessionProvider` republishes it — `onAuthStateChange` fires `USER_UPDATED`, so
+the `/me` button relabels itself the moment a password is stored. **It is a
+hint, not a security boundary.** User metadata is user-writable and nothing here
+grants access; a forged value only puts the wrong label on a button.
+
+Because we can't distinguish the three cases, the wrong-password copy covers all
+three and points at the path that works in every one:
+
+> Wrong password — or this account may not have one yet. Email me a code instead.
+
+### Two things that shaped the code
+
+**The `/signin` redirect fires only for someone who *arrived* signed in — not
+merely because a session exists.** The create-password step renders *after* a
+successful `verifyOtp`, so a session is live while it is on screen. A guard
+that watched for a session would redirect that step away the instant the
+sign-in preceding it succeeded, and `onAuthStateChange` can publish the new
+session before the handler that chose the step has run — an ordering race, not
+a hypothetical. The `selfInitiated` ref is what separates the two cases, and it
+is set *before* the sign-in call rather than after it resolves, so it is
+already true by the time any effect could observe the session. It is read in an
+effect, never during render (`react-hooks/refs` rejects the render-time read,
+correctly — a ref is not a render input).
+
+**Password length is checked with `charLength()`, not `.length`** — the same
+`src/lib/text.ts` helper the profile counters use, and for a related reason.
+Our floor is 8; Supabase's default minimum is 6 and GoTrue counts bytes. A code
+point is never fewer bytes than one, so anything clearing 8 code points here
+clears 6 bytes there. A stricter project setting surfaces as `weak_password`,
+whose message names the reason and is shown verbatim.
+
+### Autofill
+
+`autoComplete="current-password"` on `/signin`, `"new-password"` on both
+create and change. The sign-in email and password sit in **one `<form>` and
+adjacent to each other**, which is what lets iOS fill both from a single
+keychain tap. Enter inside the password field is intercepted so it signs in
+rather than triggering the form's default of mailing a code.
+
+### Verified against the live project (Sep 1), without sending any email
+
+| Check | Result |
+|---|---|
+| `/auth/v1/settings` | `"email": true` — the provider is on |
+| `signInWithPassword`, unknown email | `400`, `invalid_credentials` — the exact code the copy branches on |
+| `PUT /auth/v1/user` with no Bearer token | `401`, `no_authorization` — confirms this is a live-session call, not a reset |
+| `data: {...}` update | Lands in `user_metadata`; `has_password: true` reads back as `hasPassword()` expects |
+| A second `data` update | **Merges**, it does not replace — an unrelated pre-seeded key survived |
+
+**Still unverified, and it needs a real inbox:** the `password` half of the
+combined call against an email account, and therefore the end-to-end
+create → sign-in-with-password loop. The probe above used a throwaway anonymous
+session, and GoTrue refuses a password on an anonymous user outright —
+`422 validation_failed`, *"Updating password of an anonymous user without an
+email or phone is not allowed"*. That refusal is about the anonymous account,
+not about the call shape, which matches the installed `UserAttributes` type
+(`password` and `data` are siblings on one flat object) and the published docs.
+
+That probe left **one anonymous user, `8da1f097-…`, in `auth.users`**. It owns
+nothing. Clear it with:
+
+```sql
+delete from auth.users where id = '8da1f097-ef7a-43ce-9b9a-e088606bfd75';
+```
