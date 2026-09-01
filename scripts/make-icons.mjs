@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Generate the Home Screen / PWA icons from public/logo.svg.
+ * Generate the Home Screen / PWA icons from public/logoCircle.svg.
  *
  *   node scripts/make-icons.mjs
  *
@@ -22,7 +22,7 @@
 import sharp from 'sharp';
 import { readFile } from 'node:fs/promises';
 
-const SOURCE = 'public/logo.svg';
+const SOURCE = 'public/logoCircle.svg';
 const BACKGROUND = '#fbf0f2'; // --bg, and the manifest's background_color
 const LOGO_SCALE = 0.65;      // fraction of canvas width
 
@@ -33,14 +33,17 @@ const TARGETS = [
 ];
 
 const svg = await readFile(SOURCE);
+// Read the intrinsic width rather than hardcoding it, so swapping the source
+// logo for one with different dimensions doesn't silently under-render.
+const { width: sourceWidth } = await sharp(svg).metadata();
 
 for (const { file, size } of TARGETS) {
   const logoWidth = Math.round(size * LOGO_SCALE);
 
   // Rasterize the SVG at the width we actually need. Passing `density` scaled
   // to the target avoids rendering small and upscaling, which would soften the
-  // edges — the source is 143px wide at the default 72dpi.
-  const density = Math.ceil((72 * logoWidth) / 143) * 2;
+  // edges — SVG renders at 72dpi by default.
+  const density = Math.ceil((72 * logoWidth) / sourceWidth) * 2;
   const logo = await sharp(svg, { density })
     .resize({ width: logoWidth, withoutEnlargement: false })
     .toBuffer();
