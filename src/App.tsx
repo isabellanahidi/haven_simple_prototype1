@@ -19,7 +19,7 @@ export default function App() {
             <Link className="app-title" to="/">
               {/* alt="" on purpose — the adjacent text already names the app,
                   so announcing it twice is noise for a screen reader. */}
-              <img className="app-logo" src="/logoCircle.svg" alt="" />
+              <img className="app-logo" src="/havenlogo.svg" alt="" />
               Haven
             </Link>
             <Link className="btn-quiet nav-link" to="/me">

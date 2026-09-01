@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { useSession } from '../lib/session';
+import type { SignInState } from '../lib/authRedirect';
 import { Loading } from './States';
 
 /**
@@ -15,7 +16,9 @@ export function RequireAuth({ children }: { children: ReactNode }) {
   // signed-in user who deep-linked straight to /me.
   if (loading) return <Loading label="Checking your session…" />;
 
-  if (!userId) return <Navigate to="/signin" state={{ from: location }} replace />;
+  if (!userId) {
+    return <Navigate to="/signin" state={{ from: location } satisfies SignInState} replace />;
+  }
 
   return <>{children}</>;
 }

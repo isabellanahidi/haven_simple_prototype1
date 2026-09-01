@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
-import { Link, useLocation, useNavigate, type Location } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useSession } from '../lib/session';
 import { authErrorMessage, retryAfterSeconds } from '../lib/authErrors';
 import { hasPassword, signInPasswordErrorMessage } from '../lib/password';
+import type { SignInState } from '../lib/authRedirect';
 import { SetPasswordForm } from '../components/SetPasswordForm';
 import { Loading } from '../components/States';
 
@@ -33,7 +34,11 @@ export default function SignIn() {
 
   // RequireAuth and useSignInRedirect both stash a full router Location under
   // state.from. Rebuild the whole path so a query string or hash survives.
-  const from = (location.state as { from?: Location } | null)?.from;
+  const state = location.state as SignInState | null;
+  const from = state?.from;
+  // Set only when we sent someone here after clearing a session whose user no
+  // longer existed.
+  const sessionExpired = state?.reason === 'session-expired';
   const rawDest = from ? `${from.pathname}${from.search ?? ''}${from.hash ?? ''}` : '/';
   // Guard against bouncing back here and looping.
   const dest = rawDest.startsWith('/signin') ? '/' : rawDest;
@@ -58,13 +63,15 @@ export default function SignIn() {
   // onAuthStateChange can publish the new session before the handler that
   // chose the step has run.
   useEffect(() => {
-    if (loading || !userId || selfInitiated.current) return;
+    if (loading || !userId || selfInitiated.current || sessionExpired) return;
     navigate(dest, { replace: true });
-  }, [loading, userId, navigate, dest]);
+  }, [loading, userId, navigate, dest, sessionExpired]);
 
   // Placeholder for the frame between the effect above deciding to leave and
   // the navigation landing. Purely cosmetic — it makes no routing decision.
-  if (!loading && userId && step === 'email') return <Loading label="Signing you in…" />;
+  if (!loading && userId && step === 'email' && !sessionExpired) {
+    return <Loading label="Signing you in…" />;
+  }
 
   const trimmedEmail = email.trim();
   const emailLooksValid = /^\S+@\S+\.\S+$/.test(trimmedEmail);
@@ -211,10 +218,16 @@ export default function SignIn() {
       {step === 'email' && (
         <form className="composer" onSubmit={handleEmailSubmit}>
           <h1 className="detail-title">Sign in</h1>
-          <p className="field-hint signin-intro">
-            Reading needs no account. Posting, replying, and liking do. A code by email always
-            works — a password is optional, and only if you've made one.
-          </p>
+          {sessionExpired ? (
+            <p className="form-notice" role="status">
+              Please sign in again.
+            </p>
+          ) : (
+            <p className="field-hint signin-intro">
+              Reading needs no account. Posting, replying, and liking do. A code by email
+              always works — a password is optional, and only if you've made one.
+            </p>
+          )}
 
           <div className="field">
             <label className="field-label" htmlFor="signin-email">

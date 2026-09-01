@@ -7,7 +7,7 @@ import { author, type Author, type Comment, type FeedPost } from '../lib/types';
 import { Byline } from '../components/Byline';
 import { LikeButton } from '../components/LikeButton';
 import { CommentComposer, LockedComposer } from '../components/CommentComposer';
-import { useSignInRedirect } from '../lib/authRedirect';
+import { clearStaleSession, useSignInRedirect } from '../lib/authRedirect';
 import { EmptyState, ErrorState, Loading } from '../components/States';
 
 const COMMENT_SELECT = 'id, parent_id, body, created_at, profiles(display_name, avatar_emoji)';
@@ -78,6 +78,13 @@ export default function PostDetail() {
       setComments((commentRes.data ?? []) as unknown as LocalComment[]);
       setLiked((likeRes?.data?.length ?? 0) > 0);
       setMe((meRes?.data as Author | null) ?? null);
+
+      // Same stale session as on /me, reached from a screen that still works
+      // without one. profiles_select is `using (true)`, so zero rows here means
+      // the row is genuinely gone, not hidden. Clearing it flips the like
+      // button and reply composer into their signed-out affordances, which is
+      // the honest state — a write would fail on the foreign key.
+      if (userId && meRes && !meRes.error && !meRes.data) void clearStaleSession();
     })();
 
     return () => {

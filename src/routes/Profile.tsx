@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useSession } from '../lib/session';
@@ -11,6 +11,7 @@ import {
   profileErrorMessage,
 } from '../lib/profile';
 import { relativeTime } from '../lib/time';
+import { useRecoverStaleSession } from '../lib/authRedirect';
 import { EmptyState, ErrorState, Loading } from '../components/States';
 import { SetPasswordForm } from '../components/SetPasswordForm';
 
@@ -28,6 +29,9 @@ type MyPost = {
 export default function Profile() {
   const { userId, hasPassword } = useSession();
   const navigate = useNavigate();
+  const recoverStaleSession = useRecoverStaleSession();
+  const [staleSession, setStaleSession] = useState(false);
+  const recovering = useRef(false);
   const [signingOut, setSigningOut] = useState(false);
   const [editingPassword, setEditingPassword] = useState(false);
   const [passwordSaved, setPasswordSaved] = useState(false);
@@ -70,9 +74,12 @@ export default function Profile() {
         return;
       }
       if (!profileRes.data) {
-        // auth.users row with no profiles row — the handle_new_user trigger
-        // didn't fire. See the ordering trap in section 7a.
-        setLoadError('Your profile row is missing. See CLAUDE.md section 7a.');
+        // A live session naming a user who no longer exists. The JWT outlives
+        // the row it points at, because getSession() never asks the server, so
+        // this reads as "signed in" right up until something touches
+        // auth.uid(). It is not a data error and there is nothing to show the
+        // person about it — clear the session and start over.
+        setStaleSession(true);
         return;
       }
 
@@ -88,6 +95,12 @@ export default function Profile() {
       cancelled = true;
     };
   }, [userId]);
+
+  useEffect(() => {
+    if (!staleSession || recovering.current) return;
+    recovering.current = true;
+    void recoverStaleSession();
+  }, [staleSession, recoverStaleSession]);
 
   // Count the trimmed values — that is what gets stored, and what the CHECK
   // constraints are evaluated against. charLength counts code points, matching
@@ -155,6 +168,9 @@ export default function Profile() {
     setJustSaved(true);
   }
 
+  // Never an error screen for this: it resolves itself, and the redirect is
+  // already on its way.
+  if (staleSession) return <Loading label="Signing you out…" />;
   if (loadError) return <ErrorState title="Couldn't load your profile" message={loadError} />;
   if (!saved) return <Loading label="Loading your profile…" />;
 

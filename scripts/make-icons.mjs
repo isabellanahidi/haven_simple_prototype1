@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Generate the Home Screen / PWA icons from public/logoCircle.svg.
+ * Generate the Home Screen / PWA icons from public/havenlogo.svg.
  *
  *   node scripts/make-icons.mjs
  *
@@ -22,7 +22,7 @@
 import sharp from 'sharp';
 import { readFile } from 'node:fs/promises';
 
-const SOURCE = 'public/logoCircle.svg';
+const SOURCE = 'public/havenlogo.svg';
 const BACKGROUND = '#fbf0f2'; // --bg, and the manifest's background_color
 const LOGO_SCALE = 0.65;      // fraction of canvas width
 

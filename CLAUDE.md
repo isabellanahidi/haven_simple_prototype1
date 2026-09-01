@@ -199,7 +199,7 @@ Row four is why the counters use `charLength()` from `src/lib/text.ts` and not `
 
 **`avatar_emoji` has no length constraint at all** — it is plain `text not null default '🙂'`. So it is edited through a fixed grid of choices rather than a text field, which keeps the column sane without pretending a counter could help: emoji are frequently several code points (flags are two, ZWJ sequences like 👩‍🚀 are three or more), so "one character" is not a rule counting can express. Whatever is already stored keeps a slot in the grid even if it isn't one of the presets, so a value set by hand in the SQL editor survives an edit.
 
-**The profile screen is where a missing `profiles` row surfaces first.** If the `handle_new_user` trigger ever fails to fire, `/me` shows "Your profile row is missing" and points at 7a, rather than rendering an empty form that silently writes nothing.
+~~**The profile screen is where a missing `profiles` row surfaces first.** If the `handle_new_user` trigger ever fails to fire, `/me` shows "Your profile row is missing" and points at 7a, rather than rendering an empty form that silently writes nothing.~~ **Superseded Sep 1.** That copy named an internal doc section to a user and treated a stale session as a data error. `/me` now clears the session and sends the person to `/signin` — see section 15. A missing row still can't render an empty form that writes nothing; it just resolves itself now instead of announcing itself.
 
 ---
 
@@ -728,7 +728,7 @@ Still worth confirming on device, because it changes what testers should be told
 
 **RLS is the classic timeline-killer.** Get the policies right at the start. Debugging "why does my insert silently return zero rows" at midnight is miserable — that symptom is almost always a failing RLS policy, and it has no error message to work from.
 
-**A stale session token survives a user deletion.** `getSession()` doesn't check the server. See 6c — this is a self-inflicted-only condition, but it presents as a mysterious foreign-key failure.
+**A stale session token survives a user deletion.** `getSession()` doesn't check the server. See 6c — this is a self-inflicted-only condition, but it presents as a mysterious foreign-key failure. **Handled as of Sep 1** on the two screens that read your own profile: they clear the session rather than reporting an error. Section 15, including the one place it is still *not* caught.
 
 **If `auth.users` has a row but `profiles` is empty**, the `handle_new_user` trigger didn't fire. Stop and fix it, because every post and comment insert will fail on the foreign key. See the ordering trap in 7a.
 
@@ -1032,3 +1032,89 @@ nothing. Clear it with:
 ```sql
 delete from auth.users where id = '8da1f097-ef7a-43ce-9b9a-e088606bfd75';
 ```
+
+---
+
+## 15. Stale sessions, and no internal references in copy (Sep 1)
+
+### The rule
+
+**No string a user can read may name a file, a section, a table, a policy, or
+an error code.** `/me` used to render *"Your profile row is missing. See
+CLAUDE.md section 7a."* — a doc reference, to a tester, in a women's health app.
+
+That was the **only** such string in the app; every other `CLAUDE.md` mention
+in `src/` is a code comment, which is where they belong. Worth re-checking with
+a grep whenever error copy is added, because the failure mode is quiet: it
+reads as fine to whoever wrote it.
+
+### Three states, not two
+
+`SessionState` already carried `{ userId, loading, hasPassword }`, so "we
+haven't looked yet" was already distinct from "signed out" — see section 13's
+second trap, which is why. **No change was needed there**, and `RequireAuth`
+already resolved the first two of the three cases:
+
+| Case | Handled by | Behaviour |
+|---|---|---|
+| Session still resolving | `RequireAuth` | Loading. Never an error. |
+| No session | `RequireAuth` | `/signin`, carrying `state.from`. |
+| Session, but the profile select returns zero rows | **new, section 15** | Clear the session, then `/signin`. |
+
+The third case is not a data error. It is the section 9 stale token: the JWT
+outlives the row it names, because `getSession()` never asks the server whether
+that user still exists. Everything scoped to `auth.uid()` then returns nothing
+and every write fails on the foreign key.
+
+`clearStaleSession()` and `useRecoverStaleSession()` live in
+`src/lib/authRedirect.ts`, next to `useSignInRedirect` — one module owns every
+route into `/signin`, and `SignInState` is the single declared shape of what
+that navigation carries.
+
+**`scope: 'local'` specifically.** There is no server-side session left to
+revoke; the token in this browser is the whole problem.
+
+**Navigate first, sign out second.** The other order publishes `SIGNED_OUT`
+while `RequireAuth` is still mounted, so its redirect wins the race and lands
+on `/signin` without the reason — leaving the real navigation to fire from an
+unmounted component. `/signin` also suppresses its own "you're already signed
+in, go to `dest`" effect when `reason === 'session-expired'`, or it would bounce
+straight back into the screen that just rejected the session.
+
+The copy is *"Please sign in again."* and nothing more.
+
+### Which screens read your own profile
+
+Both, and they want different things:
+
+| Screen | Guarded? | On zero rows |
+|---|---|---|
+| `/me` | `RequireAuth` | Can't function — clear and redirect |
+| `/p/:id` | **no, and correctly not** — reading is open | Stays put, clears the session; the like button and reply composer fall back to their signed-out affordances |
+
+Redirecting off a post someone is reading would be worse than the bug. Clearing
+the session there is still right, because a write from that session would fail
+on the foreign key.
+
+**Still not caught, and worth knowing:** the feed reads `likes`, not `profiles`,
+so a stale session there is invisible until a like insert fails. Catching it
+everywhere means verifying the profile once in `SessionProvider` at boot — one
+extra query per signed-in load. Not done, because it wasn't asked for and the
+cost is a real one on a phone.
+
+### Logo
+
+`logoCircle.svg` → `havenlogo.svg` everywhere: the header `<img>`, the
+`rel="icon"` link in `index.html`, and `SOURCE` in `scripts/make-icons.mjs`.
+No references to the old file remain.
+
+`npm run` isn't wired to it; regenerate with `node scripts/make-icons.mjs`.
+Re-run and re-verified: 180/192/512 at the same paths, `#fbf0f2`, **3 channels
+and `hasAlpha: false`**, square corners.
+
+**One thing changed shape.** `logoCircle.svg` was 184×184; `havenlogo.svg` is
+**32×25**, and both wrap an embedded bitmap rather than being true vectors.
+`LOGO_SCALE` is a fraction of canvas *width*, so the mark now occupies 65% of
+the width but only ~51% of the height — it sits smaller in the square than the
+circle did. Left at 0.65 deliberately, since changing it wasn't asked for. If
+the icon wants to read larger, that constant is the dial.
