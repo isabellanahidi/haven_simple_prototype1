@@ -1,6 +1,7 @@
 import { BrowserRouter, Link, Route, Routes } from 'react-router-dom';
 import { SessionProvider } from './components/SessionProvider';
 import { RequireAuth } from './components/RequireAuth';
+import { TabBar } from './components/TabBar';
 import Feed from './routes/Feed';
 import PostDetail from './routes/PostDetail';
 import CreatePost from './routes/CreatePost';
@@ -13,20 +14,17 @@ export default function App() {
     <BrowserRouter>
       <SessionProvider>
         <div className="app">
-          {/* Outside <Routes>, so navigation survives every route and every
-              loading and error state. See CLAUDE.md section 12. */}
+          {/* Header and tab bar sit outside <Routes>, so navigation survives
+              every route and every loading and error state. See CLAUDE.md
+              section 12. */}
           <header className="app-header">
-            <Link className="app-title" to="/">
-              {/* alt="" on purpose — the adjacent text already names the app,
-                  so announcing it twice is noise for a screen reader. */}
-              <img className="app-logo" src="/havenlogo.svg" alt="" />
-              Haven
-            </Link>
-            <Link className="btn-quiet nav-link" to="/me">
-              Me
-            </Link>
-            <Link className="btn-ask" to="/new">
-              Ask
+            {/* The logo is not a link: the Home tab is the way back to the
+                feed, and a second tap target for the same destination would
+                only compete with it. */}
+            <img className="app-logo" src="/havenlogo.svg" alt="Haven" />
+
+            <Link className="icon-btn" to="/me" aria-label="Settings">
+              <img className="icon-btn-glyph" src="/icons/settings.svg" alt="" />
             </Link>
           </header>
 
@@ -59,6 +57,8 @@ export default function App() {
               <Route path="*" element={<NotFound />} />
             </Routes>
           </main>
+
+          <TabBar />
         </div>
       </SessionProvider>
     </BrowserRouter>

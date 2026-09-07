@@ -103,13 +103,13 @@ These were cut on purpose to protect the deadline. **Do not add them back** with
 
 **Every screen is built** — feed, post detail, create post, like toggle, replies, and profile edit. All compile and lint clean, and every write path is verified against the live project (4a–4d). The Home Screen install is shipped too (section 12). What remains is section 11's **final polish prompt**: safe-area insets, keyboard avoidance on the composers, and the account-fragility banner — plus supplying the three PNG icons listed in section 12.
 
-Nav is complete: **Me** and **Ask** in the header, plus "Ask a question" buttons in the feed's and profile's empty states.
+~~Nav is complete: **Me** and **Ask** in the header, plus "Ask a question" buttons in the feed's and profile's empty states.~~ **Superseded Sep 7 — see section 16.** Nav is now a fixed bottom tab bar plus a settings button in the header. The empty-state "Ask a question" buttons are untouched.
 
 **Nothing has been seen on a real iPhone yet.** Every verification so far has been a build, a lint, or a query run against the live database — none of it says whether the app *feels* right on a phone. That is what the polish pass is for, and it is the last checkbox in this section that no amount of local checking can tick.
 
 One structural note that will matter again: **the feed card is no longer a single `<Link>`.** A `<button>` nested inside an `<a>` is invalid HTML, and tapping the heart would navigate to the post. So the card is a `<li class="post-card">` holding a `<Link class="post-card-main">` for the tappable region, with the like button as a sibling below it. Any future interactive control on a feed card has to go outside `.post-card-main` the same way.
 
-Nav so far: an **Ask** pill in the header routes to `/new`, and the feed's empty state has an "Ask a question" button. `/me` still has no entry point — add one with the profile screen.
+~~Nav so far: an **Ask** pill in the header routes to `/new`, and the feed's empty state has an "Ask a question" button. `/me` still has no entry point — add one with the profile screen.~~ **Superseded Sep 7 — see section 16.**
 
 ### 4a. Write path verified against the live project (Day 2)
 
@@ -855,13 +855,15 @@ In standalone mode there is no back gesture and no URL bar, so every route must 
 
 | Route | Way out |
 |---|---|
-| `/` | Home. Header carries Me and Ask |
+| `/` | Home. Header carries the settings button; tab bar carries Home and Ask |
 | `/p/:id` | "← Feed", on both the loaded and not-found branches |
 | `/new` | "← Feed". On success it redirects to `/p/:id`, which has its own |
 | `/me` | "← Feed" |
 | `*` | "← Back to the feed" |
 
-**The real guarantee is structural, not per-route:** the header lives in `App.tsx` *outside* both `<Routes>` and `<SessionGate>`, so it renders on every route and through every loading and error state — including the three `ErrorState` screens, which have no back link of their own. **Keep it outside `SessionGate`.** Moving it inside would strand a user on the auth-failure screen with no way to navigate.
+**The real guarantee is structural, not per-route:** the header and the tab bar live in `App.tsx` *outside* both `<Routes>` and `<SessionProvider>`'s children, so they render on every route and through every loading and error state — including the three `ErrorState` screens, which have no back link of their own. **Keep them outside.** Moving them inside would strand a user on an error screen with no way to navigate.
+
+**The per-route back links are now redundant, and are a candidate for removal.** As of section 16 the tab bar reaches `/` from every route, which is exactly what each "← Feed" link does. They were deliberately left in place during the shell pass, which was scoped to the shell alone. Removing them is a content-pass decision, and worth taking as one change across all five routes rather than screen by screen — `back-link` appears in `PostDetail`, `Profile`, `NotFound`, `CreatePost`, and `SignIn`. Note that `/p/:id` is the one case with an argument for keeping it: a shared post link is the one way into the app that has no history to go back to, and "← Feed" reads as more deliberate there than tapping Home.
 
 One acknowledged gap: the env-var guard in `main.tsx` renders before `App` is imported, so it has no header. In standalone mode that screen is a dead end — but it only appears when the deployment has no Supabase credentials, when there is nowhere useful to navigate to anyway.
 
@@ -1118,3 +1120,125 @@ and `hasAlpha: false`**, square corners.
 the width but only ~51% of the height — it sits smaller in the square than the
 circle did. Left at 0.65 deliberately, since changing it wasn't asked for. If
 the icon wants to read larger, that constant is the dial.
+
+---
+
+## 16. App shell restructured to the Figma design (Sep 7)
+
+Source frame: `Main-HomeTab`, `node-id=2068-170`, on the **Final** page of the
+`Haven01` file (`XSLL50UCpD2PTojQLJWreu`). **This pass changed the shell only**
+— no screen content, no routes, no auth, no data, and no colour tokens.
+
+### What the shell is now
+
+| | Before | After |
+|---|---|---|
+| Header | Sticky white bar, logo + "Haven" wordmark, `Me` link, `Ask` pill | Transparent, **centred logo** + a 40px settings button at the trailing edge |
+| Nav | Two links in the header | **Fixed bottom tab bar**: Home, Ask, Messages |
+| `/me` reached by | The `Me` header link | The header's settings button |
+| `/new` reached by | The `Ask` header pill | The tab bar's `+` |
+| Column | `--content-max: 640px` | `--content-max: 480px` |
+
+`src/components/TabBar.tsx` is the only new component. `.nav-link` and
+`.btn-ask` were deleted from the stylesheet along with the elements that used
+them; `.btn-quiet` survives because the comment composer still uses it.
+
+**The header is deliberately not sticky.** It is transparent over `--bg`, so
+pinning it would let content scroll underneath it in plain sight. The tab bar
+is the part of the shell that persists, which is what section 12's standalone
+guarantee now rests on.
+
+**The logo is not a link.** The Home tab already goes to `/`, and a second tap
+target for the same destination would only compete with it.
+
+### Where the baseline overrode the design
+
+- **The header's settings button is 40×40 in Figma, under the 44px minimum.**
+  The circle is still drawn at 40px so it matches the design; `.icon-btn::after`
+  with `inset: -2px` extends the hit area to 44×44. The tab bar's own buttons
+  are 48px and needed no such help.
+- **The tab bar carries `padding-bottom: env(safe-area-inset-bottom)`,** which
+  the frame does not show and cannot — Figma does not render safe areas. The
+  design's bar ends flush with the bottom of an 852px frame, so taken literally
+  the home indicator would sit on top of the tabs in the installed app.
+- **`.app-main`'s bottom padding now includes `--tabbar-h`.** Without that term
+  the last feed card scrolls behind the fixed bar.
+
+### Two places the design was read rather than copied
+
+- **The logo and the gear are not aligned in the frame** — logo centre at
+  y≈75, gear centre at y≈96, a 21px difference with nothing else on that row to
+  explain it. Read as drawing imprecision and aligned on one row. If it was
+  deliberate, this is the thing to put back.
+- **The tab bar's horizontal inset is expressed as `16%`, not `62.8px`.** 16%
+  reproduces the design's inset exactly at its 393px frame width while keeping
+  the three tabs evenly placed as the column grows toward 480.
+
+### Icons
+
+Six SVGs exported from the Figma `task-bar` component's variants, committed
+byte-identical to the export in `public/icons/`:
+
+| File | Used for |
+|---|---|
+| `tab-home.svg` / `tab-home-active.svg` | Home tab |
+| `tab-ask.svg` / `tab-ask-active.svg` | Ask tab |
+| `tab-messages.svg` | Messages tab, **both states** |
+| `settings.svg` | Header button |
+
+**Home and Ask genuinely need two files each** — active and inactive are
+different glyphs (a filled house vs an outlined one), not one glyph recoloured.
+**Messages needs only one**, and the reason is worth knowing before anyone
+"fixes" the asymmetry: its stroke is the same colour as the active circle, so
+against that circle the stroke disappears and the white fill reads as a solid
+bubble. One file, two correct renderings.
+
+The icons carry the design's `#9F2042` baked into their stroke attributes —
+see the palette note below. `public/icons/` sits next to the pre-existing
+`public/icons.svg`, which is an unused Vite template leftover and safe to
+delete whenever someone is in there.
+
+### Palette differences, recorded but NOT applied
+
+Colour was out of scope for this pass. The design's values differ from the
+locked palette in two places, both left alone:
+
+| Element | Figma | In the app |
+|---|---|---|
+| Active tab circle | `#9F2042` | `var(--button)` = `#6E2639` |
+| Tab bar top border | `#E5E7EB` | `var(--border)` = `#E3E6EA` |
+
+The border pair is a rounding difference and not worth acting on. The active
+circle is a real divergence and a deliberate decision to make separately. Note
+that the **icon SVGs hardcode `#9F2042`**, so if `--button` ever becomes the
+tab colour, the inactive icons will need re-exporting or recolouring to match —
+they will not follow the token.
+
+### `--content-max` 640 → 480
+
+Retuned rather than shadowed by a media query, so one variable stays the truth.
+
+**Nothing changes on a phone** — 393px is below both values, so the column has
+always been viewport-width there. The change is desktop-only and is the point:
+a 480px column is an honest preview of a mobile-first app. What visibly narrows
+above 480px is the post body on `/p/:id`, the two composers, and the sign-in
+card; the avatar `emoji-grid` also fits fewer columns per row, since it is
+`auto-fill` over a 44px minimum. All cosmetic, all desktop-only.
+
+### Still open
+
+**The Messages tab has no destination.** The design has a `messages` screen
+(`179:4954`) and this app has no such route, so the tab renders as a `disabled`
+button at 0.35 opacity — present for the design's three-slot spacing, inert,
+and labelled "Messages — not available yet" for screen readers. It is the one
+piece of the shell that is a placeholder rather than an implementation.
+
+**The gear maps to `/me`, not to the design's `settings` frame** (`179:4722`),
+which this pass did not read. `/me` is the app's account screen — profile
+fields, password, sign out — so the mapping is right in kind, but the two
+screens have not been compared.
+
+**Still not seen on a real iPhone.** Verified with headless Chrome at 500px and
+900px. Note that macOS Chrome clamps a headless window to a ~500px minimum
+width, so a `--window-size=393` screenshot silently lays out at 500 and looks
+broken — that is the tool, not the CSS. Screenshot at 500 or wider.

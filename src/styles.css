@@ -45,8 +45,11 @@
 
   /* layout */
   --tap: 44px; /* minimum tap target */
-  --header-h: 52px;
-  --content-max: 640px;
+  /* One column width for the whole app. 480px is a phone-width column, so a
+     desktop browser shows an honest preview of a mobile-first app rather than
+     a wide reflow no tester will ever see. */
+  --content-max: 480px;
+  --tabbar-h: 80px; /* the bar itself, before the home-indicator inset */
 
   color-scheme: light;
 }
@@ -128,34 +131,63 @@ a {
   flex-direction: column;
 }
 
-.app-header {
-  position: sticky;
-  top: 0;
-  z-index: 10;
-  height: var(--header-h);
-  display: flex;
-  align-items: center;
-  gap: var(--sp-2);
-  padding: 0 var(--sp-4);
-  padding-top: env(safe-area-inset-top);
-  height: calc(var(--header-h) + env(safe-area-inset-top));
-  background: var(--surface);
-  border-bottom: 1px solid var(--border);
-}
+/* Centred logo with a trailing settings button. Three grid columns rather than
+   flexbox: the empty leading column is the same width as the trailing button,
+   which is what keeps the logo centred on the screen rather than centred in
+   the space the button leaves over.
 
-.app-title {
-  font-size: var(--fs-lg);
-  font-weight: 700;
-  letter-spacing: -0.01em;
-  min-height: var(--tap);
-  display: flex;
+   Not sticky. The header is transparent over the page background, so pinning
+   it would let content scroll underneath it in plain sight. The tab bar is the
+   part of the shell that persists. */
+.app-header {
+  display: grid;
+  grid-template-columns: 40px 1fr 40px;
   align-items: center;
-  gap: var(--sp-2);
+  width: 100%;
+  max-width: var(--content-max);
+  margin: 0 auto;
+  padding: var(--sp-4) var(--sp-4) var(--sp-3);
+  padding-top: calc(env(safe-area-inset-top) + var(--sp-4));
 }
 
 .app-logo {
-  height: 28px;
+  grid-column: 2;
+  justify-self: center;
+  height: 25px;
   width: auto;
+  display: block;
+}
+
+/* A 40px circle, per the design. The design's 40px is under the 44px minimum,
+   so ::after extends the hit area to 44x44 without growing the circle. */
+.icon-btn {
+  grid-column: 3;
+  position: relative;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: var(--surface);
+  box-shadow:
+    0 1px 1.5px rgb(0 0 0 / 0.1),
+    0 1px 1px rgb(0 0 0 / 0.1);
+}
+
+.icon-btn::after {
+  content: '';
+  position: absolute;
+  inset: -2px;
+}
+
+.icon-btn:active {
+  opacity: 0.85;
+}
+
+.icon-btn-glyph {
+  width: 20px;
+  height: 20px;
   display: block;
 }
 
@@ -165,7 +197,71 @@ a {
   max-width: var(--content-max);
   margin: 0 auto;
   padding: var(--sp-3) var(--sp-3);
-  padding-bottom: calc(var(--sp-6) + env(safe-area-inset-bottom));
+  /* Clears the fixed tab bar, its safe-area inset, and then some. Without the
+     --tabbar-h term the last feed card sits behind the bar. */
+  padding-bottom: calc(var(--tabbar-h) + var(--sp-6) + env(safe-area-inset-bottom));
+}
+
+/* ---------- bottom tab bar ---------- */
+
+/* Fixed, and constrained to the column rather than the window: on a wide
+   viewport a full-bleed white strip under a 480px column reads as a stray
+   band. left/transform rather than margin:auto because a fixed element with
+   left:0;right:0 would stretch the full width. */
+.tab-bar {
+  position: fixed;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  width: 100%;
+  max-width: var(--content-max);
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  /* Without this the home indicator sits on top of the tabs in the installed
+     app. Figma cannot show this — it does not render safe areas. */
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.tab-bar-inner {
+  height: var(--tabbar-h);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  /* 16% reproduces the design's 62.8px inset at its 393px frame width, and
+     keeps the three tabs evenly placed as the column widens. */
+  padding: 0 16%;
+}
+
+.tab {
+  /* 48px, already clear of the 44px minimum. */
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+}
+
+.tab-active {
+  background: var(--button);
+}
+
+.tab-icon {
+  width: 24px;
+  height: 24px;
+  display: block;
+}
+
+.tab:not(.tab-disabled):active {
+  opacity: 0.85;
+}
+
+/* No Messages screen exists yet, so the tab is present for the design's
+   spacing but inert. Dimmed so it does not read as a live destination. */
+.tab-disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
 }
 
 /* ---------- buttons ---------- */
@@ -220,31 +316,6 @@ a {
 
 .btn-secondary:not(:disabled):active {
   background: var(--bg);
-}
-
-/* Header nav sits at the trailing edge; "Me" starts the group. */
-.nav-link {
-  margin-left: auto;
-  color: var(--text);
-  font-size: var(--fs-base);
-}
-
-.btn-ask {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: var(--tap);
-  min-width: var(--tap);
-  padding: 0 var(--sp-4);
-  border-radius: 999px;
-  background: var(--button);
-  color: #fff;
-  font-size: var(--fs-base);
-  font-weight: 650;
-}
-
-.btn-ask:active {
-  opacity: 0.85;
 }
 
 .state-action {
