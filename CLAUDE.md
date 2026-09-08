@@ -874,7 +874,37 @@ const { data } = await supabase
   .limit(50);
 ```
 
-**The `!posts_author_id_fkey` is required, not decoration.** `posts` reaches `profiles` two different ways — many-to-one via `author_id`, and many-to-many via the `likes` join table. A bare `profiles(...)` is ambiguous, and PostgREST refuses to guess: it returns HTTP 300 with `PGRST201`, "Could not embed because more than one relationship was found". Naming the foreign key picks the author edge. Verified against the live project on Day 2. **Comments are unaffected** — `comments` reaches `profiles` only through `author_id`, so `profiles(display_name, avatar_emoji)` is unambiguous there and works as written. **`comment_likes` is a second path from `comments` to a profile**, but it points the other way (`comment_likes` → `comments`), so the comment embed stays unambiguous. This trap will reappear on any future `posts → profiles` embed.
+**The FK hint is required, not decoration — and it now applies to comments too.**
+
+`posts` reaches `profiles` two ways: many-to-one via `author_id`, and many-to-many via the `likes` junction table. A bare `profiles(...)` is ambiguous, and PostgREST refuses to guess — HTTP 300, `PGRST201`, "Could not embed because more than one relationship was found". Naming the foreign key picks the author edge. Verified live on Day 2.
+
+**The general rule, which is what actually matters:**
+
+> **Adding a junction table between A and B breaks every bare embed between A and B.** A junction table is any table holding foreign keys to both — it does not have to be *named* like one, and the direction of its keys is irrelevant. The moment it exists, `A.select('…, B(…)')` becomes ambiguous and starts returning `PGRST201`.
+
+**`comment_likes` did exactly this to comments on Sep 7.** It holds FKs to both `comments` and `profiles`, so `comments → profiles` gained a second path and every bare `profiles(...)` embed on a comments query broke — the list query *and* the insert's returning embed, which is finding 9's whole mechanism. Both now use `profiles!comments_author_id_fkey(...)`.
+
+**This was initially recorded here as "comments are unaffected", on the reasoning that `comment_likes` points from comment_likes to comments rather than the other way.** That reasoning is wrong: `likes` points from likes to posts in exactly the same way and has always made `posts → profiles` ambiguous. PostgREST sees the junction, not a direction. **The corrected rule is the blockquote above** — apply it structurally rather than by reading off which way the arrows point.
+
+**Constraint names** are the Postgres defaults, `<table>_<column>_fkey`, because both FKs are declared inline and unnamed in section 7:
+
+| Embed | Hint |
+|---|---|
+| `posts → profiles` | `profiles!posts_author_id_fkey(...)` |
+| `comments → profiles` | `profiles!comments_author_id_fkey(...)` |
+
+Confirm against the live database rather than trusting the derivation:
+
+```sql
+select conname, conrelid::regclass as from_table, confrelid::regclass as to_table
+from pg_constraint
+where contype = 'f'
+  and conrelid in ('public.posts'::regclass, 'public.comments'::regclass,
+                   'public.likes'::regclass, 'public.comment_likes'::regclass)
+order by from_table, conname;
+```
+
+**What to check when adding any junction table in future:** every existing embed between the two tables it now links. `comment_likes` also links `profiles` to `comments`, so a `profiles → comments` embed would need a hint too — nothing selects one today.
 
 For "did I like this?", **fetch the current user's likes separately** and hold them in a `Set` — don't embed `likes(user_id)` into the feed query, since that pulls every like row for every post:
 ```ts
@@ -2024,6 +2054,19 @@ error rolls both back. Every write uses `.select()` and checks the row count,
 per finding 4a.
 
 A pending comment's like button is disabled — there is no server id to like yet.
+
+### The embed hint that was missing
+
+`comment_likes` made `comments → profiles` ambiguous the moment it was created,
+because it holds foreign keys to both. Every bare `profiles(...)` embed on a
+comments query returns `PGRST201` — the list query and the insert's returning
+embed alike, which would have broken both the thread and the optimistic swap.
+`COMMENT_SELECT` now carries `profiles!comments_author_id_fkey(...)`, and one
+constant covers both call sites.
+
+**Section 8's finding 1 was wrong about this and has been corrected.** It said
+comments were unaffected because `comment_likes` points at comments rather than
+from them. Direction is irrelevant; the junction is what counts.
 
 ### Errors and counts
 

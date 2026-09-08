@@ -11,11 +11,19 @@ import { CommentComposer, LockedComposer } from '../components/CommentComposer';
 import { clearStaleSession, useSignInRedirect } from '../lib/authRedirect';
 import { EmptyState, ErrorState, Loading } from '../components/States';
 
-// depth and like_count come straight from the row. comments reaches profiles
-// only through author_id, so a bare profiles(...) embed is unambiguous here —
-// unlike posts, which needs its FK named.
+// depth and like_count come straight from the row.
+//
+// The FK hint is required, not decoration. comment_likes holds foreign keys to
+// BOTH comments and profiles, which makes it a junction table and gives
+// comments a second path to profiles on top of author_id. A bare
+// `profiles(...)` is then ambiguous and PostgREST refuses it with PGRST201.
+// This is the same trap posts has had all along — see finding 1 in section 8.
+//
+// One constant, deliberately: it feeds the list query AND the insert's
+// returning embed, so both were broken by the same omission and both are
+// fixed by the same hint.
 const COMMENT_SELECT =
-  'id, parent_id, depth, like_count, body, created_at, profiles(display_name, avatar_emoji)';
+  'id, parent_id, depth, like_count, body, created_at, profiles!comments_author_id_fkey(display_name, avatar_emoji)';
 
 export default function PostDetail() {
   const { id } = useParams<{ id: string }>();
