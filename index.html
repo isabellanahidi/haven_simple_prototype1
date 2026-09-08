@@ -6,6 +6,20 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Haven</title>
 
+    <!-- Self-hosted, and preloaded so the greeting does not paint in the system
+         font and then reflow when Pacifico lands. crossorigin is required even
+         same-origin: fonts are fetched in CORS mode, and without it the preload
+         is discarded and fetched a second time. Deliberately NOT a
+         fonts.googleapis.com link — this is a PWA and its home screen should
+         not depend on a third-party request to render. -->
+    <link
+      rel="preload"
+      href="/fonts/pacifico-latin-400.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+
     <link rel="manifest" href="/manifest.json" />
     <meta name="theme-color" content="#feedf1" />
 

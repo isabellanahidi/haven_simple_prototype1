@@ -1281,6 +1281,10 @@ source of truth, and these values should be re-checked against it.**
 | — derived, `--button` at 10% over `--surface` | `--like-soft` | `#f5e9ec` |
 | — the header button's drop shadow | `--shadow` | `rgb(0 0 0 / 0.1)` |
 
+**Superseded Sep 7 by section 19 — `--accent` and `--accent-soft` are now
+burgundy tints and the blue is gone. `--danger` is still unchanged.** The
+paragraph below records why they were left alone at the time.
+
 **`--accent` (`#3d5afe`), `--accent-soft` and `--danger` were NOT changed and
 are NOT from Figma.** The frame contains no link, no focus ring and no error
 state, so the design expresses no opinion on them. `--accent` is the one that
@@ -1336,6 +1340,9 @@ canvas background changed. Re-verified: 180/192/512, corner pixel `#feedf1`,
 |---|---|---|---|
 | Header | `safe + 68px`, implied by padding | **`--header-h: 53px`** | Logo top (y=63) to first content element (y=116) |
 | Bottom bar | `--tabbar-h: 80px` | **unchanged** | The `BottomNavigation` node measures exactly 80 |
+
+**`--tabbar-h` was later cut to 64px — a deliberate departure from the frame.
+See section 19.**
 
 The header lost 15px. **The design draws no header container**, so 53px is a
 measured span rather than a value read off a node — the logo and the settings
@@ -1459,18 +1466,140 @@ error, so it does not pop in after the posts land.
 
 ### Two things left open
 
-**Skipping is not remembered.** The step appears whenever the name is absent,
-which is what was asked for — so someone who taps "Not now" is asked again on
-every OTP sign-in. Recording a `personal_name_skipped` flag alongside it would
-fix that, and would cost one more metadata key.
+~~**Skipping is not remembered.**~~ **Done Sep 7 — `personal_name_skipped`,
+see section 19.**
 
-**The design's fonts are not loaded.** The frame sets "Hello" in **Pacifico
-Regular** and the rest in **DM Sans Bold**, both 45px. Neither webfont is in
-the project, so both halves currently render in the system stack.
-`.feed-greeting-script` is the empty seam to hang Pacifico on. Adopting them is
-its own pass, because DM Sans is the design's heading face everywhere — post
-titles are DM Sans Bold 16 — not just in the greeting.
+**Pacifico is now self-hosted and applied to "Hello,"; DM Sans is still not
+loaded.** See section 19. The name half still renders in the system stack.
 
-**Copy note:** the frame reads "Hello, Jane!" with an exclamation mark; the
-strings above follow the wording that was specified for this task, which has
-none.
+~~**Copy note:** the frame reads "Hello, Jane!" with an exclamation mark.~~
+**Resolved Sep 7 — both states now carry it. See section 19.**
+
+---
+
+## 19. Five visual edits, and the remembered skip (Sep 7)
+
+Frame `Main-HomeTab` (`node-id=2068-170`) again. Nothing here touches auth,
+data, or routing.
+
+### 1. Byline above the post
+
+The frame's PostCard runs **byline → title → excerpt → counts**; the app had
+the byline under the excerpt. Moved on feed cards and on post detail. Comments
+are unchanged — their byline was already at the top.
+
+`Byline` gained a `lead` prop rather than being restyled outright, because the
+comment bylines still want the old spacing. `lead` adds a bottom margin only.
+
+**Finding 5 still holds and was re-checked.** The card is a `<li>` holding a
+`<Link class="post-card-main">` with the like button as a *sibling*, and the
+byline contains nothing interactive — an emoji, a name, and a `<time>` — so it
+is safe inside the link. **If a byline ever gains a link to the author, it has
+to move out of `.post-card-main`**, exactly as the like button did. That note
+now lives in `Byline.tsx` too, which is where someone would be standing when
+they make that change.
+
+### 2. Bottom tab bar: 80px → 64px
+
+**A deliberate departure from the frame.** The `BottomNavigation` node measures
+80, which is thick for a three-icon bar once `env(safe-area-inset-bottom)` is
+added underneath it on a notched phone. 64 is an override, not a correction —
+if the design is ever re-read, 80 is still what it says.
+
+The 48px buttons still clear the 44px minimum, with 8px above and below.
+
+**Nothing was hardcoded to 80**, so `--tabbar-h` was the whole change: the bar
+takes its `height` from it and `.app-main` composes its bottom padding as
+`calc(var(--tabbar-h) + var(--sp-6) + env(safe-area-inset-bottom))`. Verified
+by grep before editing, which is the check worth repeating if the number moves
+again.
+
+### 3. Blue is gone
+
+Every blue is now a tint of `--button` over `--surface`. **Two tints, because
+they have different contrast floors:**
+
+| Variable | Tint | Value | Job | On `--bg` | On `--surface` |
+|---|---|---|---|---|---|
+| `--accent` | 85% | `#ad415e` | **Link text** — needs 4.5:1 | **5.03:1** | 5.68:1 |
+| `--accent-line` | 70% | `#bc637b` | **Non-text** — focus rings, selected avatar border; needs 3:1 | **3.57:1** | 4.03:1 |
+| `--accent-soft` | 12% | `#f3e4e8` | Pale notice background | — | — |
+
+**`--accent` is the palest tint that is legal for text.** The next step down,
+80% (`#b24d68`), measures **4.48:1** on `--bg` and fails. Worth knowing before
+anyone lightens it to match the design's airiness.
+
+Text uses: `.back-link`, `.signin-edit`, `.reply-trigger`, and the active state
+on a feed card's title. Non-text uses: `.text-input:focus` and
+`.emoji-choice.selected`. **Don't cross them** — `--accent-line` on text fails,
+and `--accent` on a focus ring reads heavier than the design.
+
+`--danger` (`#b3261e`) is deliberately untouched. It has to stay
+distinguishable from the brand, which is itself a red.
+
+One consequence worth watching: `.form-notice` (`--accent-soft`) and
+`.form-error` (`--like-soft`, 10%) are now both pale pinks two percent apart.
+They are told apart by their text colour, not their background.
+
+### 4. Greeting punctuation
+
+"Hello, Jane!" and "Hello, Love!" — the exclamation is in both states now,
+matching the frame.
+
+### 5. Pacifico, self-hosted
+
+`public/fonts/pacifico-latin-400.woff2`, with `Pacifico-OFL.txt` beside it.
+**Latin subset only** — the greeting is "Hello," — declared with a matching
+`unicode-range` and `font-display: swap`, and preloaded from `index.html`.
+
+**Not linked from Google Fonts.** This is a PWA; its home screen should not
+depend on a third-party request to render, and a runtime link puts someone
+else's uptime in front of the greeting.
+
+Two things that are easy to get wrong here:
+
+- **The Google Fonts CSS returns five `@font-face` blocks**, and the *first*
+  is cyrillic-ext, not latin. Grabbing the first URL gets a subset with no
+  Latin glyphs, and the greeting silently renders in the fallback — it looks
+  like the font simply failed. The latin block is the **last** one.
+- **`crossorigin` is required on the preload even though the font is
+  same-origin.** Fonts are fetched in CORS mode; without it the preload is
+  discarded and the file is fetched a second time, which is worse than not
+  preloading at all.
+
+Only `"Hello,"` is Pacifico. The name stays in the system stack because the
+frame sets it in **DM Sans Bold**, and DM Sans is the design's heading face
+everywhere — post titles are DM Sans Bold 16 — so adopting it is a typography
+pass of its own. **That pass is still outstanding.**
+
+The comma sits inside the Pacifico span, which is what was asked for. Worth
+recording that **the frame actually splits it the other way** — its segments
+are `"Hello"` in Pacifico and `", Jane!"` in DM Sans, so the comma is DM Sans
+there. The difference is a comma's worth of shape.
+
+### Remembering "Not now"
+
+`personal_name_skipped`, in the same metadata object as the name, so section
+18's hard rule covers it unchanged — **auth metadata only, never a table.**
+`data` merges, so it cannot disturb `personal_name` or `has_password`.
+
+- Set by "Not now" on the post-sign-in step, awaited before navigating. If the
+  write fails, the person is simply asked once more, which is the old behaviour.
+- Read at sign-in: the step asks for a name only when it is absent **and** not
+  skipped.
+- **Cleared by `savePersonalName`.** Giving a name answers the question, so a
+  previous decline is spent — and if they later clear the field, the prompt is
+  allowed to return once.
+
+### A verification note worth keeping
+
+**`npx tsc --noEmit` is not a real check in this project.** It passed while
+`npm run build` failed on four errors in the same file: the build runs
+`tsc -b`, which resolves the project references that actually include `src/`,
+while a bare invocation against the root tsconfig checks almost nothing. **Use
+`npm run build`.**
+
+The database is empty, so the byline change has no live data to render. It was
+verified against a static mock of the card markup using the built stylesheet,
+which exercises the real `.byline-lead` spacing. The greeting, the tab bar, the
+link colour and the focus ring were verified in the running app.

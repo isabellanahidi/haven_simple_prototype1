@@ -26,7 +26,7 @@ function Greeting({ name }: { name: string | null }) {
       {/* The design sets "Hello" in Pacifico and the rest in DM Sans Bold.
           Neither font is loaded yet, so both currently render in the system
           stack — the span marks the seam. See CLAUDE.md section 18. */}
-      <span className="feed-greeting-script">Hello</span>, {greetingName(name)}
+      <span className="feed-greeting-script">Hello,</span> {greetingName(name)}!
     </h1>
   );
 }
@@ -127,9 +127,9 @@ export default function Feed() {
           // invalid, and tapping the heart would navigate.
           <li className="post-card" key={post.id}>
             <Link className="post-card-main" to={`/p/${post.id}`}>
+              <Byline author={author(post.profiles)} createdAt={post.created_at} lead />
               <h2 className="post-title">{post.title}</h2>
               {post.body && <p className="post-excerpt">{post.body}</p>}
-              <Byline author={author(post.profiles)} createdAt={post.created_at} />
             </Link>
             <div className="post-meta">
               <LikeButton

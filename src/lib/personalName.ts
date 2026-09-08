@@ -54,6 +54,23 @@ export function personalNameLength(value: string): number {
   return charLength(value.trim());
 }
 
+/**
+ * Whether this person has already declined to give a name.
+ *
+ * Without this, "Not now" is forgotten and the prompt returns on every OTP
+ * sign-in — which reads as nagging for exactly the people who most clearly
+ * said no. Stored in the same metadata object as the name itself; `data`
+ * merges, so it cannot disturb `personal_name` or `has_password`.
+ */
+export function personalNameSkipped(user: User | null | undefined): boolean {
+  return user?.user_metadata?.personal_name_skipped === true;
+}
+
+/** Record a decline. Same single store, same merge semantics. */
+export async function skipPersonalName() {
+  return supabase.auth.updateUser({ data: { personal_name_skipped: true } });
+}
+
 /** The name to greet someone by, falling back when they haven't given one. */
 export function greetingName(name: string | null): string {
   return name ?? GREETING_FALLBACK;
@@ -74,6 +91,11 @@ export function personalNameValid(value: string): boolean {
 export async function savePersonalName(value: string) {
   const trimmed = value.trim();
   return supabase.auth.updateUser({
-    data: { personal_name: trimmed.length > 0 ? trimmed : null },
+    data: {
+      personal_name: trimmed.length > 0 ? trimmed : null,
+      // Giving a name answers the question, so a previous decline is spent. If
+      // they later clear the field, the prompt is allowed to return once.
+      personal_name_skipped: false,
+    },
   });
 }

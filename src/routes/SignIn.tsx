@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase';
 import { useSession } from '../lib/session';
 import { authErrorMessage, retryAfterSeconds } from '../lib/authErrors';
 import { hasPassword, signInPasswordErrorMessage } from '../lib/password';
-import { personalName } from '../lib/personalName';
+import { personalName, personalNameSkipped, skipPersonalName } from '../lib/personalName';
 import type { SignInState } from '../lib/authRedirect';
 import { SetPasswordForm } from '../components/SetPasswordForm';
 import { PersonalNameForm } from '../components/PersonalNameForm';
@@ -26,6 +26,7 @@ export default function SignIn() {
   const { userId, loading } = useSession();
 
   const [step, setStep] = useState<Step>('email');
+  const [dismissing, setDismissing] = useState(false);
   const [missing, setMissing] = useState<Missing>({
     name: false,
     password: false,
@@ -205,7 +206,8 @@ export default function SignIn() {
     // Decided from the user this call just returned rather than from context
     // state, so it can't race the provider catching up.
     const needs: Missing = {
-      name: personalName(data.user) === null,
+      // Someone who has already said "Not now" is not asked again.
+      name: personalName(data.user) === null && !personalNameSkipped(data.user),
       password: !hasPassword(data.user),
     };
 
@@ -215,6 +217,21 @@ export default function SignIn() {
       return;
     }
 
+    navigate(dest, { replace: true });
+  }
+
+  /**
+   * "Not now" on the optional step. Records the decline when a name was being
+   * asked for, so the prompt does not return on the next sign-in. Awaited
+   * rather than fired and forgotten: if it fails we simply leave, and the
+   * person is asked once more — the same behaviour as before the flag existed.
+   */
+  async function dismissExtras() {
+    if (dismissing) return;
+    if (missing.name) {
+      setDismissing(true);
+      await skipPersonalName();
+    }
     navigate(dest, { replace: true });
   }
 
@@ -413,7 +430,8 @@ export default function SignIn() {
                 <button
                   type="button"
                   className="btn-quiet"
-                  onClick={() => navigate(dest, { replace: true })}
+                  onClick={dismissExtras}
+                  disabled={dismissing}
                 >
                   Not now
                 </button>
@@ -430,7 +448,8 @@ export default function SignIn() {
                 <button
                   type="button"
                   className="btn-quiet"
-                  onClick={() => navigate(dest, { replace: true })}
+                  onClick={dismissExtras}
+                  disabled={dismissing}
                 >
                   Not now
                 </button>

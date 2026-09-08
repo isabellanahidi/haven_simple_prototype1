@@ -163,10 +163,7 @@ export default function PostDetail() {
         <Link className="back-link" to="/">
           ← Feed
         </Link>
-        <EmptyState
-          title="Post not found"
-          body="It may have been deleted, or the link is wrong."
-        />
+        <EmptyState title="Post not found" body="It may have been deleted, or the link is wrong." />
       </>
     );
   }
@@ -180,8 +177,8 @@ export default function PostDetail() {
       </Link>
 
       <article className="detail-card">
+        <Byline author={author(post.profiles)} createdAt={post.created_at} lead />
         <h1 className="detail-title">{post.title}</h1>
-        <Byline author={author(post.profiles)} createdAt={post.created_at} />
         {post.body && <p className="detail-body">{post.body}</p>}
         <div className="post-meta">
           <LikeButton postId={post.id} initialCount={post.like_count} initialLiked={liked} />

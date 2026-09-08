@@ -1,3 +1,22 @@
+/* Self-hosted, not linked from Google Fonts. This is a PWA: the home screen
+   must render without a third-party request, and a runtime link to
+   fonts.gstatic.com would put someone else's uptime in front of the greeting.
+   The file is the latin subset only (the greeting is "Hello,"), OFL-licensed,
+   with the licence alongside it in public/fonts/.
+
+   swap, so the greeting paints immediately in the fallback and upgrades when
+   the font lands rather than hiding behind an invisible-text period. */
+@font-face {
+  font-family: 'Pacifico';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/pacifico-latin-400.woff2') format('woff2');
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
 /* ============================================================
    Global stylesheet — the only one in the project.
    Plain CSS, CSS variables for color and spacing.
@@ -11,11 +30,11 @@
      every value below is taken from a fill or stroke on the frame itself. The
      comment on each line names the element it was read from, because that is
      the only provenance the design file offers. */
-  --bg: #feedf1;      /* the frame's own fill */
+  --bg: #feedf1; /* the frame's own fill */
   --surface: #ffffff; /* cards, text input, bottom bar, header button */
-  --border: #e5e7eb;  /* BottomNavigation's stroke */
+  --border: #e5e7eb; /* BottomNavigation's stroke */
 
-  --text: #221003;      /* post titles, 16px DM Sans Bold */
+  --text: #221003; /* post titles, 16px DM Sans Bold */
   --text-body: #3d1307; /* post bodies, and the "Hello, Jane!" heading */
 
   /* NOT the design's value. Figma uses #99a1af for the "2h" timestamp, which
@@ -25,18 +44,34 @@
      measures 5.89:1 on --bg and 6.65:1 on --surface. */
   --text-muted: #77544d;
 
-  /* Figma specifies no link, focus or error colour — the frame has no links
-     and no error state. These three are carried over unchanged and are the
-     only colours here the design did not decide. */
-  --accent: #3d5afe;
-  --accent-soft: #eef1ff;
+  /* The frame has no links, focus rings or error states, so the design decides
+     none of these. What it does decide is that the only interactive colour in
+     the app is the brand, so the former blue is gone and these are tints of
+     --button over --surface. Two of them, because they have different jobs and
+     different contrast floors:
+
+       --accent      85% brand. LINK TEXT, so it must clear 4.5:1 on --bg.
+                     Measures 5.03:1 on --bg and 5.68:1 on --surface. The next
+                     step down (80%, #b24d68) measures 4.48 and fails, so this
+                     is the palest tint that is legal for text.
+       --accent-line 70% brand. NON-TEXT only — focus rings and the selected
+                     avatar's border — which need 3:1, not 4.5. Measures
+                     3.57:1 on --bg and 4.03:1 on --surface.
+
+     Using --accent for a focus ring would work but reads heavier than the
+     design; using --accent-line for text would fail. Keep the split.
+     --danger stays its own hue on purpose: it has to remain distinguishable
+     from the brand, which is itself a red. */
+  --accent: #ad415e;
+  --accent-line: #bc637b;
+  --accent-soft: #f3e4e8; /* 12% brand — pale background for notices */
   --danger: #b3261e;
 
   /* The design's single brand colour: the active tab, avatar circles, the
      comment and heart icons, and the like counts are all this one value. */
   --button: #9f2042;
   --button-deep: #7b0d1e; /* the "New Discussions" pill */
-  --on-button: #ffffff;   /* text and icons on top of --button */
+  --on-button: #ffffff; /* text and icons on top of --button */
 
   /* The heart and its count are brand-coloured in the design, so --like is no
      longer its own hue. --like-soft is --button at 10% over --surface. */
@@ -73,10 +108,16 @@
      a safe-area inset at the point of use rather than baked in here.
      --header-h is the band from the top of the logo (y=63) to the top of the
      first content element (y=116) — the design draws no header container, so
-     that span is the header. --tabbar-h is the BottomNavigation node, which
-     measures exactly 80. */
+     that span is the header.
+
+     --tabbar-h DEPARTS FROM THE FRAME. The BottomNavigation node measures 80,
+     which is thick for a three-icon bar once the home-indicator inset is added
+     underneath it. 64 is a deliberate override. The 48px buttons still fit
+     with 8px above and below. Nothing hardcodes either number: .app-main's
+     bottom padding and the bar's own height both compose from this variable,
+     so changing it here is the whole change. */
   --header-h: 53px;
-  --tabbar-h: 80px; /* the bar itself, before the home-indicator inset */
+  --tabbar-h: 64px; /* the bar itself, before the home-indicator inset */
 
   color-scheme: light;
 }
@@ -465,9 +506,9 @@ a {
 }
 
 .emoji-choice.selected {
-  border-color: var(--accent);
+  border-color: var(--accent-line);
   background: var(--accent-soft);
-  box-shadow: inset 0 0 0 1px var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent-line);
 }
 
 .badge-hidden {
@@ -539,7 +580,7 @@ a {
 }
 
 .text-input:focus {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--accent-line);
   outline-offset: -1px;
   background: var(--surface);
 }
@@ -665,11 +706,11 @@ a {
    over 46px leading in --text-body. The frame's gap to the content below it is
    24px, which is --sp-5.
 
-   The design sets "Hello" in Pacifico and the rest in DM Sans Bold. Neither
-   webfont is loaded — adopting them is a typography decision for its own pass,
-   since DM Sans is the design's heading face everywhere, not just here — so
-   both halves currently render in the system stack. .feed-greeting-script is
-   the seam to hang Pacifico on when that happens. */
+   "Hello," is Pacifico, self-hosted. The name deliberately is NOT: the frame
+   sets it in DM Sans Bold, and DM Sans is the design's heading face everywhere
+   — post titles included — so adopting it is a typography pass of its own
+   rather than a side effect of this one. The name stays in the system
+   stack until then. */
 .feed-greeting {
   margin: 0 0 var(--sp-5);
   font-size: 45px;
@@ -683,6 +724,20 @@ a {
   overflow-wrap: anywhere;
 }
 
+.feed-greeting-script {
+  /* The fallback is the body stack, so a failed or slow font swaps rather than
+     falling back to a serif default that looks nothing like the design. */
+  font-family:
+    'Pacifico',
+    -apple-system,
+    BlinkMacSystemFont,
+    system-ui,
+    sans-serif;
+  font-weight: 400;
+  /* Pacifico's ascenders and descenders run tall; without a little extra room
+     the cap of the H clips against the header above it. */
+  line-height: 1.15;
+}
 
 .feed-list {
   list-style: none;
@@ -737,6 +792,13 @@ a {
   font-size: var(--fs-sm);
   color: var(--text-muted);
   min-width: 0;
+}
+
+/* Above the title on feed cards and on post detail, per the frame. The
+   modifier rather than restyling .byline itself, because comments still carry
+   a byline in its original position and spacing. */
+.byline-lead {
+  margin-bottom: var(--sp-2);
 }
 
 .byline-emoji {
