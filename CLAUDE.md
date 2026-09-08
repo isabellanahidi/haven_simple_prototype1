@@ -8,6 +8,29 @@
 
 ---
 
+## 0. Standing rules
+
+**These apply to every session, without being restated.**
+
+### Never run `git commit` or `git push`
+
+Leave all changes in the working tree. The user reviews and commits them
+personally. This holds even when a task's wording sounds like it authorises a
+commit — "ship it", "land this", "commit to main" — and it holds for
+`git merge`, `git rebase`, `git reset`, `git checkout -b` and anything else
+that moves history or rewrites the index. Stage nothing.
+
+Finishing a piece of work means: the change is in the working tree, it builds
+and lints, and you have said what changed and what to look at. Then stop.
+
+If a commit would genuinely help, say so and let the user decide.
+
+### Schema changes go in `supabase/migrations/`
+
+Named `YYYY-MM-DD_short_description.sql`. See section 7.
+
+---
+
 ## 1. What we're building
 
 A mobile-first, Reddit-style Q&A app. Prototype quality, but going in front of **real users for testing** — not just a screenshot demo. So data persistence, security, and basic abuse handling actually matter.
@@ -59,7 +82,7 @@ These were cut on purpose to protect the deadline. **Do not add them back** with
 - Search
 - Notifications
 - Infinite scroll (hard `limit 50` on the feed)
-- Comment threading beyond **one level** (a reply to a reply is rejected at the database level)
+- ~~Comment threading beyond **one level** (a reply to a reply is rejected at the database level)~~ → **reinstated Sep 7.** Unlimited nesting to a ceiling of 100. See section 20.
 - Karma / reputation scores
 - Sorting options (chronological only, newest first)
 - Real-time subscriptions
@@ -166,6 +189,27 @@ The last two rows are the whole reason the delete uses `.select()`. Both return 
 
 Rolling both fields back in these cases would put the UI *further* from the server, not closer. Only a genuine transport or policy error gets the full rollback.
 
+### 4e. Two LOCKED decisions reversed (Sep 7)
+
+**One-level nesting and likes-on-posts-only are no longer the design.** Both
+were locked in section 2 and cut in section 3, and both are now reversed on
+purpose. Section 20 has the reasoning and the SQL; the short version:
+
+| Was | Now |
+|---|---|
+| A reply to a reply is rejected by `comments_depth_check` | Nesting is unlimited to a **ceiling of 100**, and the trigger is kept as an abuse guard |
+| Depth was implicit — the trigger only asked "does my parent have a parent?" | **`comments.depth` is stored**, computed by the same trigger |
+| Only posts can be liked | Comments can be liked, via `comment_likes` + `comments.like_count` |
+
+**The DDL is drafted but NOT applied.** Until it is run in the SQL Editor, the
+database still rejects a reply-to-a-reply and has no `comment_likes` table, so
+sections 4c and 8 still describe the live behaviour.
+
+**Findings 4a–4d still hold in full.** In particular finding 4a — an update or
+delete filtered out by RLS returns `200` with an empty array and no error — now
+applies to `comment_likes` exactly as it does to `likes`, so an unlike must
+check the returned row count rather than trusting the absence of an error.
+
 ### 4c. Reply composer verified against the live project (Day 2)
 
 | Step | Result |
@@ -180,6 +224,13 @@ Rolling both fields back in these cases would put the UI *further* from the serv
 **The depth trigger's message is already written for a person.** `enforce_comment_depth()` raises it via `raise exception`, so PostgREST hands back `P0001` with the exact string, and it is displayed verbatim. The check-constraint wording is not — `new row for relation "comments" violates check constraint "comment_body_len"` gets translated. Both live in `src/lib/comments.ts`; **add a case there rather than inventing new copy at a call site.**
 
 **The UI never offers a reply-to-a-reply.** Only top-level comments render a Reply button, so the trigger is a backstop rather than a routine path — but the error is surfaced, not swallowed, because a silent no-op after typing a reply is the worst outcome.
+
+> **Superseded Sep 7 (section 20).** Once the DDL is applied, a reply to a
+> reply is legal and the Reply button belongs on every comment. The `P0001`
+> row above stays true — `commentErrorMessage` returns `error.message`
+> verbatim for that code, so the trigger's *new* messages surface correctly
+> with no client change. Only the doc comment in `src/lib/comments.ts`, which
+> quotes the old string by name, goes stale.
 
 **Reply totals on the detail screen count the loaded list, not `posts.comment_count`.** An optimistic reply lands in the total immediately, and the number always matches what is on screen. The two can legitimately differ — RLS hides a `hidden` comment from the list while the counter trigger still counted it — and in that case the list is the honest number. The feed still reads `comment_count`, which is correct there: it is a cheap denormalized count and the feed refetches on mount.
 
@@ -318,7 +369,18 @@ Do not develop in private tabs full-time. You'd get a new identity on every clos
 
 ## 7. Database schema (full, authoritative)
 
-Four tables: `profiles`, `posts`, `comments`, `likes`. **Applied.** Kept here as the authoritative reference — a saved SQL Editor query is a scratchpad, not a migration record, so if the schema changes, change it here too or a fresh Claude Code session will build against a stale definition.
+Five tables: `profiles`, `posts`, `comments`, `likes`, `comment_likes`. Kept here as the authoritative reference — if the schema changes, change it here too or a fresh Claude Code session will build against a stale definition.
+
+**Migrations live in `supabase/migrations/`**, named `YYYY-MM-DD_short_description.sql`. That directory is the ordered record of *how* the schema got here; this section is the current state of *what* it is. **Both get updated together** — a migration file without a section 7 edit leaves the next session building against a stale definition, and a section 7 edit without a migration file leaves no way to reproduce the database.
+
+The convention started Sep 7, so it is not retrospective: the original schema below was applied by hand from a saved SQL Editor query and has no migration file. Everything after it does.
+
+| File | Covers | Applied? |
+|---|---|---|
+| — | The original four tables, triggers and RLS below | yes, by hand |
+| `2026-09-07_nesting_and_comment_likes.sql` | Unlimited nesting + `comments.depth`, `comment_likes`, `comments.like_count` | **not yet — see section 20** |
+
+**Section 7 below already describes the post-migration schema.** The live database is behind it until that file is run.
 
 ```sql
 -- ============================================================
@@ -478,6 +540,11 @@ create table public.comments (
   author_id   uuid not null references public.profiles(id) on delete cascade,
   parent_id   uuid references public.comments(id) on delete cascade,
   body        text not null,
+  -- Added Sep 7 with unlimited nesting. 0 = top-level. Always written by
+  -- enforce_comment_depth(), never by the client, so it cannot be forged.
+  depth       int not null default 0,
+  -- Added Sep 7 with comment likes. Denormalised, kept by a counter trigger.
+  like_count  int not null default 0,
   hidden      boolean not null default false,
   created_at  timestamptz not null default now(),
   constraint comment_body_len check (char_length(body) between 1 and 2000)
@@ -485,17 +552,45 @@ create table public.comments (
 
 create index comments_post_idx on public.comments (post_id, created_at);
 
--- Reject replies-to-replies so the UI never has to recurse.
+-- Rewritten Sep 7. This used to reject replies-to-replies; nesting is now
+-- unlimited in practice and this is an abuse guard plus the thing that
+-- computes depth, so the client never has to walk the tree to find it.
 create or replace function public.enforce_comment_depth()
 returns trigger
 language plpgsql
 as $$
+declare
+  max_depth      constant int := 100;
+  parent_depth   int;
+  parent_post_id uuid;
 begin
-  if new.parent_id is not null
-     and (select parent_id from public.comments where id = new.parent_id) is not null
-  then
-    raise exception 'Only one level of replies is allowed';
+  if new.parent_id is null then
+    new.depth := 0;
+    return new;
   end if;
+
+  select depth, post_id
+    into parent_depth, parent_post_id
+    from public.comments
+   where id = new.parent_id;
+
+  -- Reachable: a BEFORE trigger runs before the foreign key is validated.
+  if not found then
+    raise exception 'That comment no longer exists.';
+  end if;
+
+  -- Added with nesting: a reply pointing at a comment on another post would
+  -- render as an orphan, and nothing previously stopped it.
+  if parent_post_id <> new.post_id then
+    raise exception 'A reply must belong to the same post as the comment it answers.';
+  end if;
+
+  new.depth := parent_depth + 1;
+
+  if new.depth > max_depth then
+    raise exception 'Replies can only nest % levels deep.', max_depth;
+  end if;
+
   return new;
 end;
 $$;
@@ -538,6 +633,45 @@ create trigger likes_counter
   after insert or delete on public.likes
   for each row execute function public.sync_like_count();
 
+-- ------------------------------------------------------------
+-- COMMENT LIKES (added Sep 7)
+-- Deliberately a second narrow table rather than one polymorphic table with
+-- nullable post_id / comment_id. Each policy then names exactly one owning
+-- column, so there is no case where a NULL makes a check vacuously true.
+-- ------------------------------------------------------------
+create table public.comment_likes (
+  user_id     uuid not null references public.profiles(id) on delete cascade,
+  comment_id  uuid not null references public.comments(id) on delete cascade,
+  created_at  timestamptz not null default now(),
+  primary key (user_id, comment_id)
+);
+
+-- The primary key already covers (user_id, ...), which is what "fetch my
+-- likes" uses. This covers the cascade direction: deleting a comment has to
+-- find its like rows. public.likes has the same gap on post_id and no
+-- equivalent index -- see section 20.
+create index comment_likes_comment_idx on public.comment_likes (comment_id);
+
+create or replace function public.sync_comment_like_count()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if tg_op = 'INSERT' then
+    update comments set like_count = like_count + 1 where id = new.comment_id;
+  elsif tg_op = 'DELETE' then
+    update comments set like_count = greatest(like_count - 1, 0) where id = old.comment_id;
+  end if;
+  return null;
+end;
+$$;
+
+create trigger comment_likes_counter
+  after insert or delete on public.comment_likes
+  for each row execute function public.sync_comment_like_count();
+
 create or replace function public.sync_comment_count()
 returns trigger
 language plpgsql
@@ -566,6 +700,7 @@ alter table public.profiles enable row level security;
 alter table public.posts    enable row level security;
 alter table public.comments enable row level security;
 alter table public.likes    enable row level security;
+alter table public.comment_likes enable row level security;
 
 -- PROFILES: world-readable, self-writable
 create policy profiles_select on public.profiles
@@ -602,12 +737,21 @@ create policy likes_insert on public.likes
   for insert with check (auth.uid() = user_id);
 create policy likes_delete on public.likes
   for delete using (auth.uid() = user_id);
+
+-- COMMENT LIKES -- identical shape to LIKES. No update policy on purpose:
+-- a like row has nothing to update, its primary key is its whole meaning.
+create policy comment_likes_select on public.comment_likes
+  for select using (true);
+create policy comment_likes_insert on public.comment_likes
+  for insert with check (auth.uid() = user_id);
+create policy comment_likes_delete on public.comment_likes
+  for delete using (auth.uid() = user_id);
 ```
 
 ### Schema design notes
 - **`like_count` and `comment_count` are denormalized** onto `posts` and kept in sync by triggers, so the feed is a single cheap query instead of N subqueries.
 - The counter trigger functions are **`security definer`** on purpose. Without it, RLS would block the counter update, because the person liking a post is not that post's author.
-- **One-level comment nesting is enforced in the database**, not just the UI. This means the reply rendering can be a flat two-pass group-by rather than a recursive component.
+- ~~**One-level comment nesting is enforced in the database**, not just the UI. This means the reply rendering can be a flat two-pass group-by rather than a recursive component.~~ **Reversed Sep 7 — see section 20.** Nesting is unlimited to a ceiling of 100, `comments.depth` is stored, and the flat two-pass group-by in `PostDetail.tsx` no longer covers the data it will receive.
 - `hidden` is a manual moderation flag. Caveat worth knowing: the update policy lets authors edit their own rows, so a determined author could flip their own post back to `hidden = false`. For a two-day prototype with one human moderator, deleting is the more reliable remedy.
 - `likes` uses a **composite primary key** `(user_id, post_id)`, so a double-tap physically cannot double-count. No debounce logic needed in the UI for that case.
 - Cascading deletes are set up throughout: deleting a user removes their profile, posts, comments, and likes.
@@ -630,18 +774,18 @@ left join public.profiles p on p.id = u.id
 order by u.created_at desc;
 ```
 
-**RLS enabled?** Expect four rows, all `true`. If any is `false`, every policy on that table is inert and there is no access control.
+**RLS enabled?** Expect five rows, all `true`. If any is `false`, every policy on that table is inert and there is no access control.
 ```sql
 select relname, relrowsecurity
 from pg_class
-where relname in ('profiles','posts','comments','likes');
+where relname in ('profiles','posts','comments','likes','comment_likes');
 ```
 
-**All four triggers present?** Expect four rows.
+**All five triggers present?** Expect five rows (`comment_likes_counter` added Sep 7).
 ```sql
 select tgname from pg_trigger
 where tgname in ('on_auth_user_created','comments_depth_check',
-                 'likes_counter','comments_counter');
+                 'likes_counter','comments_counter','comment_likes_counter');
 ```
 
 **Backfill orphaned profiles.** Safe to run when there are none — affects zero rows. Only needed if a user was created before the trigger existed.
@@ -657,10 +801,11 @@ where p.id is null;
 
 **Teardown**, if the schema ever needs re-applying from scratch. `create table` fails on re-run, so drop first:
 ```sql
-drop table if exists public.likes, public.comments, public.posts, public.profiles cascade;
+drop table if exists public.comment_likes, public.likes, public.comments, public.posts, public.profiles cascade;
 drop function if exists public.handle_new_user cascade;
 drop function if exists public.enforce_comment_depth cascade;
 drop function if exists public.sync_like_count cascade;
+drop function if exists public.sync_comment_like_count cascade;
 drop function if exists public.sync_comment_count cascade;
 ```
 The cascade on `handle_new_user` also removes its trigger on `auth.users`, which is otherwise easy to leave orphaned.
@@ -1603,3 +1748,120 @@ The database is empty, so the byline change has no live data to render. It was
 verified against a static mock of the card markup using the built stylesheet,
 which exercises the real `.byline-lead` spacing. The greeting, the tab bar, the
 link colour and the focus ring were verified in the running app.
+
+---
+
+## 20. Unlimited comment nesting and comment likes — DDL drafted, NOT APPLIED (Sep 7)
+
+**Status: SQL drafted, waiting to be run in the SQL Editor.** Nothing in the
+database has changed yet. Section 7 already describes the post-change schema,
+because section 7 is the authoritative reference and a fresh session must not
+build against the old one — but the live project is behind it until this is
+applied.
+
+Two decisions locked in section 2 and cut in section 3 are deliberately
+reversed. Sections 3, 4, 7 and 7a have been updated to match.
+
+### Nesting
+
+**The trigger is kept, not dropped.** `comments_depth_check` stops being a UX
+rule and becomes two things: an abuse guard with a ceiling of **100**, and the
+thing that computes `comments.depth`. The ceiling is not a UX limit — the
+client caps visual indent separately, and should.
+
+**Depth was not stored, and the old trigger did not compute it.** It only asked
+"does my parent have a parent?", which answers a yes/no question about one
+level and nothing else. So depth had to be added.
+
+**The cheapest way to get depth is a stored column written by the trigger that
+already reads the parent row.** The trigger does one lookup of the parent
+either way; it now selects `depth` instead of `parent_id` and assigns
+`new.depth := parent_depth + 1`. That is O(1) per insert and zero cost per
+read. The alternative — a recursive CTE on every fetch — pays on every render
+of every thread, forever, to avoid one integer column.
+
+Three properties worth knowing:
+
+- **Depth cannot be forged.** The trigger assigns `new.depth` on both INSERT
+  and UPDATE, so a client that writes `depth: 0` on a deep reply is overwritten.
+- **The backfill must run with the trigger disabled.** It recomputes depth from
+  the parent's *currently stored* depth, so with the trigger live the backfill
+  would read not-yet-backfilled parents and settle on wrong values below the
+  first level. The drafted block disables and re-enables around it.
+- **Reparenting does not re-depth descendants.** Changing a comment's
+  `parent_id` recomputes only that row. There is no reparenting UI, so this is
+  unreachable today; it would need a recursive update if one ever appears.
+
+**A cross-post parent was never checked** and is now rejected. A reply pointing
+at a comment on a different post would render as an orphan under deep nesting.
+The check shares the lookup the trigger already does, so it is free.
+
+### Comment likes
+
+`comment_likes` mirrors `likes` exactly — composite primary key
+`(user_id, comment_id)`, `security definer` counter trigger, public select,
+owner-scoped insert and delete, no update policy.
+
+**Two narrow tables rather than one polymorphic table** with nullable
+`post_id` / `comment_id`. The security argument is the one that decides it:
+with two nullable foreign keys, every policy has to reason about which column
+is null, and a policy that names a null column is vacuously true rather than
+false. Two tables means each policy names exactly one owning column.
+
+**One index was added that `likes` does not have:** `comment_likes_comment_idx`
+on `(comment_id)`. The primary key covers `(user_id, ...)`, which is what
+"fetch my likes" uses, but the cascade direction — deleting a comment has to
+find its like rows — has no index without it. **`public.likes` has the same gap
+on `post_id`.** Harmless at current size; the one-line fix is at the bottom of
+the drafted SQL, commented out.
+
+### `posts.comment_count` — confirmed, no change needed
+
+**It already counts every reply at every depth.** `sync_comment_count()` is
+`after insert or delete ... for each row`, and it keys off `new.post_id` /
+`old.post_id` alone — it never looks at `parent_id`. So a comment at depth 7
+increments the same counter as one at depth 0, and always did. Deep nesting
+needs nothing here.
+
+Two things that follow and are easy to misread:
+
+- **A cascade delete keeps it correct.** Deleting a comment cascades to its
+  whole subtree, and row-level triggers fire for each cascaded row, so the
+  counter decrements once per descendant.
+- **Hidden comments are still counted**, as section 4c already notes. The
+  detail screen's total counts the loaded list instead, which is the honest
+  number there; the feed reads the column, which is right for a cheap
+  denormalised count.
+
+### The client work this implies — none of it done
+
+Applying the DDL does not by itself make the UI threaded. What it breaks or
+leaves stale:
+
+1. **`PostDetail.tsx` renders a flat two-pass group-by** — top-level comments
+   with a single `replies` array each. That structure cannot represent depth 2
+   and will silently drop anything deeper. This is the real work.
+2. **The Reply button is only rendered on top-level comments**, precisely
+   because the trigger used to reject anything deeper. It now belongs on every
+   comment.
+3. **`src/lib/comments.ts` needs no code change** — `commentErrorMessage`
+   returns `error.message` verbatim for `P0001`, so the trigger's new messages
+   surface correctly. Its *doc comment* quotes the old
+   "Only one level of replies is allowed" string by name and is now wrong.
+4. **Comment likes need a `LikeButton` equivalent**, and finding 4a applies
+   unchanged: an unlike filtered out by RLS returns `200` with an empty array
+   and no error, so the returned row count is the only proof it did anything.
+5. **The feed's `comment_count` is unaffected** and needs no change.
+
+### Where the SQL is
+
+**`supabase/migrations/2026-09-07_nesting_and_comment_likes.sql`** — the first
+file under the convention recorded in section 7.
+
+Three blocks with a verification query after each, plus two optional
+transaction-wrapped probes that insert, report, and roll back — one proving a
+third-level reply is now accepted, one proving the like counter moves both
+ways.
+
+**Uncommitted, and it stays that way** — per section 0, every change is left in
+the working tree for the user to review and commit.
