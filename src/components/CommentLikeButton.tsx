@@ -2,28 +2,31 @@ import type { MouseEvent } from 'react';
 import { useLikeToggle } from '../lib/useLikeToggle';
 
 type Props = {
-  postId: string;
+  commentId: string;
   initialCount: number;
   initialLiked: boolean;
+  /** An optimistic reply has no server row yet, so there is nothing to like. */
+  disabled?: boolean;
 };
 
 /**
- * The like button on a post. All the optimistic and rollback behaviour lives
- * in useLikeToggle, which the comment version shares — see the note there
- * about why the two anomalous paths do NOT roll both fields back.
+ * The like button on a comment. Identical behaviour to the post version — the
+ * shared hook is the point — pointed at `comment_likes` and
+ * `comments.like_count` instead.
+ *
+ * Signed out it stays visible with its real count and asks for a session on
+ * tap, rather than hiding and misrepresenting the reply as unlikeable.
  */
-export function LikeButton({ postId, initialCount, initialLiked }: Props) {
+export function CommentLikeButton({ commentId, initialCount, initialLiked, disabled }: Props) {
   const { userId, liked, count, failed, toggle } = useLikeToggle({
-    table: 'likes',
-    column: 'post_id',
-    targetId: postId,
+    table: 'comment_likes',
+    column: 'comment_id',
+    targetId: commentId,
     initialCount,
     initialLiked,
   });
 
   function handleClick(event: MouseEvent<HTMLButtonElement>) {
-    // The feed card sits next to a <Link>, not inside one, but stop the event
-    // here anyway so a tap on the heart never bubbles into a navigation.
     event.preventDefault();
     event.stopPropagation();
     void toggle();
@@ -35,9 +38,10 @@ export function LikeButton({ postId, initialCount, initialLiked }: Props) {
         type="button"
         className={liked ? 'stat stat-btn liked' : 'stat stat-btn'}
         onClick={handleClick}
+        disabled={disabled}
         aria-pressed={userId ? liked : undefined}
         aria-label={
-          !userId ? 'Sign in to like this post' : liked ? 'Unlike this post' : 'Like this post'
+          !userId ? 'Sign in to like this reply' : liked ? 'Unlike this reply' : 'Like this reply'
         }
       >
         <span className="stat-icon" aria-hidden="true">

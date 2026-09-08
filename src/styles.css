@@ -935,6 +935,10 @@ a {
   border-radius: var(--radius);
   padding: var(--sp-3);
   margin-bottom: var(--sp-3);
+  /* scrollIntoView respects this, so an inline composer opened deep in a
+     thread lands above the fixed tab bar rather than behind it. */
+  scroll-margin-bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom) + var(--sp-4));
+  scroll-margin-top: calc(var(--header-h) + env(safe-area-inset-top) + var(--sp-4));
 }
 
 /* Nested inside a comment, the composer shouldn't look like a second card. */
@@ -1025,8 +1029,9 @@ a {
   opacity: 0.55;
 }
 
-/* One level of nesting only — enforced by a DB trigger, so this
-   never needs to recurse. */
+/* Nesting is unlimited to a DB ceiling of 100, so this recurses. Each level
+   adds one rail; .comment caps its own indent at --indent (see below), which
+   is what stops a deep thread from squeezing the body to nothing. */
 .reply-list {
   list-style: none;
   margin: var(--sp-3) 0 0;
@@ -1034,10 +1039,76 @@ a {
   border-left: 2px solid var(--border);
 }
 
-.reply {
-  padding: var(--sp-2) 0 var(--sp-2) var(--sp-3);
+/* The indent cap, and the reason it needs a class rather than a depth count:
+   the DOM nests for real, so each .reply-list would keep adding a rail
+   forever. A comment at MAX_INDENT_DEPTH renders its children flush with
+   itself, which is what "flattened" means visually — order is unchanged, only
+   the offset stops growing. */
+.comment-indent-capped > .reply-list {
+  margin-top: 0;
+  padding-left: 0;
+  border-left: none;
 }
 
-.reply + .reply {
+/* Both halves of the indent have to go. The rail above is only 12px of it —
+   a nested .comment also carries its own padding-left, and zeroing just the
+   list leaves the tree still stepping right one half-step per level. */
+.comment-indent-capped > .reply-list > .comment {
+  padding-left: 0;
+}
+
+/* A nested comment is a lighter block than a top-level one — no card of its
+   own, just the rail to its left. */
+.reply-list .comment {
+  border: none;
+  border-radius: 0;
+  background: none;
+  padding: var(--sp-2) 0 var(--sp-2) var(--sp-3);
+  margin-bottom: 0;
+}
+
+.reply-list .comment + .comment {
   border-top: 1px solid var(--border);
+}
+
+/* Past MAX_INDENT_DEPTH the rail stops carrying the relationship, so the
+   reply names who it answers instead. */
+.comment-context {
+  margin: 0 0 var(--sp-1);
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.comment-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-top: var(--sp-1);
+}
+
+/* 44px minimum, and full-width so the whole row is the target rather than
+   just the words — this is the control that reveals a hidden subtree. */
+.thread-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  width: 100%;
+  min-height: var(--tap);
+  margin-top: var(--sp-1);
+  padding: 0 var(--sp-2);
+  border-radius: var(--radius-sm);
+  color: var(--accent);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  text-align: left;
+}
+
+.thread-toggle:active {
+  background: var(--accent-soft);
+}
+
+.thread-toggle-caret {
+  font-size: var(--fs-sm);
+  line-height: 1;
 }

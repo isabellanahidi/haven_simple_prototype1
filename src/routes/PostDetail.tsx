@@ -2,18 +2,20 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useUserId } from '../lib/session';
-import { commentErrorMessage } from '../lib/comments';
-import { author, type Author, type Comment, type FeedPost } from '../lib/types';
+import { buildCommentTree, commentErrorMessage, COMMENT_LIMIT } from '../lib/comments';
+import { author, type Author, type FeedPost } from '../lib/types';
 import { Byline } from '../components/Byline';
 import { LikeButton } from '../components/LikeButton';
+import { CommentThread, type LocalComment } from '../components/CommentThread';
 import { CommentComposer, LockedComposer } from '../components/CommentComposer';
 import { clearStaleSession, useSignInRedirect } from '../lib/authRedirect';
 import { EmptyState, ErrorState, Loading } from '../components/States';
 
-const COMMENT_SELECT = 'id, parent_id, body, created_at, profiles(display_name, avatar_emoji)';
-
-/** A comment that may not have reached the server yet. */
-type LocalComment = Comment & { pending?: boolean };
+// depth and like_count come straight from the row. comments reaches profiles
+// only through author_id, so a bare profiles(...) embed is unambiguous here —
+// unlike posts, which needs its FK named.
+const COMMENT_SELECT =
+  'id, parent_id, depth, like_count, body, created_at, profiles(display_name, avatar_emoji)';
 
 export default function PostDetail() {
   const { id } = useParams<{ id: string }>();
@@ -29,13 +31,17 @@ export default function PostDetail() {
   // server has told us anything.
   const [me, setMe] = useState<Author | null>(null);
   const [replyingTo, setReplyingTo] = useState<string | null>(null);
+  const [commentLikes, setCommentLikes] = useState<Set<string>>(() => new Set());
+  // Which nodes the reader has opened or closed by hand. Memory only, per
+  // spec — a reload starts from the depth-based default again.
+  const [openOverrides, setOpenOverrides] = useState<Map<string, boolean>>(() => new Map());
 
   useEffect(() => {
     if (!id) return;
     let cancelled = false;
 
     (async () => {
-      const [postRes, commentRes, likeRes, meRes] = await Promise.all([
+      const [postRes, commentRes, likeRes, commentLikeRes, meRes] = await Promise.all([
         supabase
           .from('posts')
           // See Feed.tsx — the author FK has to be named to disambiguate.
@@ -48,11 +54,23 @@ export default function PostDetail() {
           .from('comments')
           .select(COMMENT_SELECT)
           .eq('post_id', id)
-          .order('created_at', { ascending: true }),
+          .order('created_at', { ascending: true })
+          .limit(COMMENT_LIMIT),
         // Both are about *me*, so both are skipped when there is no me. The
         // post and its comments still load — those selects pass for anon.
         userId
           ? supabase.from('likes').select('post_id').eq('user_id', userId).eq('post_id', id)
+          : null,
+        // My likes on this post's comments, in one query rather than a second
+        // round trip after the comment ids are known — the !inner embed turns
+        // the comments join into a filter, so every reply knows its liked
+        // state on first render instead of popping in afterwards.
+        userId
+          ? supabase
+              .from('comment_likes')
+              .select('comment_id, comments!inner(post_id)')
+              .eq('user_id', userId)
+              .eq('comments.post_id', id)
           : null,
         userId
           ? supabase
@@ -77,6 +95,11 @@ export default function PostDetail() {
       setPost(postRes.data as unknown as FeedPost);
       setComments((commentRes.data ?? []) as unknown as LocalComment[]);
       setLiked((likeRes?.data?.length ?? 0) > 0);
+      // A failed comment-likes query is not worth blocking the thread over —
+      // hearts just render empty, exactly as the feed treats its own.
+      setCommentLikes(
+        new Set((commentLikeRes?.data ?? []).map((r) => (r as { comment_id: string }).comment_id)),
+      );
       setMe((meRes?.data as Author | null) ?? null);
 
       // Same stale session as on /me, reached from a screen that still works
@@ -98,15 +121,26 @@ export default function PostDetail() {
       if (!userId) return 'Sign in to reply.';
 
       const tempId = `pending-${crypto.randomUUID()}`;
+      // Depth is guessed only for the placeholder's indent, from the parent
+      // already on screen. The server's value replaces it moments later — the
+      // trigger is the only real writer.
+      const parentDepth = parentId
+        ? ((comments ?? []).find((c) => c.id === parentId)?.depth ?? 0)
+        : -1;
       const optimistic: LocalComment = {
         id: tempId,
         parent_id: parentId,
+        depth: parentDepth + 1,
+        like_count: 0,
         body,
         created_at: new Date().toISOString(),
         profiles: me,
         pending: true,
       };
       setComments((prev) => [...(prev ?? []), optimistic]);
+      // Replying into a collapsed thread has to reveal it, or the reply lands
+      // somewhere the person cannot see.
+      if (parentId) setOpenOverrides((prev) => new Map(prev).set(parentId, true));
 
       const { data, error: insertError } = await supabase
         .from('comments')
@@ -116,38 +150,29 @@ export default function PostDetail() {
 
       if (insertError || !data) {
         setComments((prev) => (prev ?? []).filter((c) => c.id !== tempId));
-        // Includes the depth trigger's P0001 "Only one level of replies is
-        // allowed" — the UI never offers that, but it must never be swallowed.
+        // Includes the depth trigger's P0001 messages — a 100-level ceiling
+        // and the same-post check. The UI never offers either, but neither
+        // may be swallowed.
         return commentErrorMessage(insertError);
       }
 
-      // Swap the placeholder for the real row, which carries the server's id
-      // and timestamp.
+      // Swap the placeholder for the real row, which carries the server's id,
+      // timestamp, byline and authoritative depth.
       setComments((prev) =>
         (prev ?? []).map((c) => (c.id === tempId ? (data as unknown as LocalComment) : c)),
       );
       return null;
     },
-    [id, me, userId],
+    [comments, id, me, userId],
   );
 
-  // Two-pass group-by, never recursive: the DB rejects replies-to-replies, so
-  // the tree is only ever two levels deep.
-  const threads = useMemo(() => {
-    if (!comments) return [];
+  // Recursive now, not a two-pass group-by: nesting is unlimited to a ceiling
+  // of 100, and the old shape could only ever represent two levels.
+  const threads = useMemo(() => buildCommentTree(comments ?? []), [comments]);
 
-    const repliesByParent = new Map<string, LocalComment[]>();
-    for (const c of comments) {
-      if (!c.parent_id) continue;
-      const bucket = repliesByParent.get(c.parent_id);
-      if (bucket) bucket.push(c);
-      else repliesByParent.set(c.parent_id, [c]);
-    }
-
-    return comments
-      .filter((c) => !c.parent_id)
-      .map((top) => ({ comment: top, replies: repliesByParent.get(top.id) ?? [] }));
-  }, [comments]);
+  const toggleOpen = useCallback((commentId: string, open: boolean) => {
+    setOpenOverrides((prev) => new Map(prev).set(commentId, open));
+  }, []);
 
   // Counted from the loaded list, not posts.comment_count, so an optimistic
   // reply lands in the total straight away. The two can legitimately differ:
@@ -210,45 +235,19 @@ export default function PostDetail() {
         <EmptyState title="No replies yet" body="Nobody has answered this one." />
       ) : (
         <ul className="comment-list">
-          {threads.map(({ comment, replies }) => (
-            <li className={comment.pending ? 'comment pending' : 'comment'} key={comment.id}>
-              <Byline author={author(comment.profiles)} createdAt={comment.created_at} />
-              <p className="comment-body">{comment.body}</p>
-
-              {/* Only top-level comments get a reply button. Replies don't,
-                  because the depth trigger would reject the insert — the UI
-                  simply never offers the move the database forbids. */}
-              {!comment.pending && replyingTo !== comment.id && (
-                <button
-                  type="button"
-                  className="btn-quiet reply-trigger"
-                  onClick={() => (userId ? setReplyingTo(comment.id) : requireSignIn())}
-                >
-                  Reply
-                </button>
-              )}
-
-              {replyingTo === comment.id && (
-                <CommentComposer
-                  placeholder={`Reply to ${author(comment.profiles).display_name}…`}
-                  submitLabel="Reply"
-                  autoFocus
-                  onCancel={() => setReplyingTo(null)}
-                  onSubmit={(body) => submitComment(body, comment.id)}
-                />
-              )}
-
-              {replies.length > 0 && (
-                <ul className="reply-list">
-                  {replies.map((reply) => (
-                    <li className={reply.pending ? 'reply pending' : 'reply'} key={reply.id}>
-                      <Byline author={author(reply.profiles)} createdAt={reply.created_at} />
-                      <p className="comment-body">{reply.body}</p>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </li>
+          {threads.map((node) => (
+            <CommentThread
+              key={node.comment.id}
+              node={node}
+              likedIds={commentLikes}
+              userId={userId}
+              replyingTo={replyingTo}
+              onReplyTo={setReplyingTo}
+              onSubmitReply={(body, parentId) => submitComment(body, parentId)}
+              requireSignIn={requireSignIn}
+              openOverrides={openOverrides}
+              onToggleOpen={toggleOpen}
+            />
           ))}
         </ul>
       )}

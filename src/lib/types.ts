@@ -20,6 +20,11 @@ export type FeedPost = {
 export type Comment = {
   id: string;
   parent_id: string | null;
+  /** Assigned by enforce_comment_depth(); 0 = top level. Never computed on
+   *  the client — the trigger is the only writer, so this is the one source
+   *  of truth for how deep a reply sits. */
+  depth: number;
+  like_count: number;
   body: string;
   created_at: string;
   profiles: Author | Author[] | null;

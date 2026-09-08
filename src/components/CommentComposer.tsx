@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { charLength } from '../lib/text';
 import { COMMENT_MAX } from '../lib/comments';
 
@@ -46,6 +46,18 @@ export function CommentComposer({
   const [body, setBody] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const formRef = useRef<HTMLFormElement>(null);
+
+  // Keyboard avoidance (CLAUDE.md section 9). An inline composer opened deep
+  // in a thread is usually below the fold, and on iOS the keyboard then covers
+  // the very field that just took focus. Scrolling it into view on open is the
+  // pragmatic fix; .comment-composer carries a scroll-margin-bottom that
+  // clears the fixed tab bar and its safe-area inset, so "into view" means
+  // genuinely visible rather than tucked behind the nav.
+  useEffect(() => {
+    if (!autoFocus) return;
+    formRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }, [autoFocus]);
 
   const trimmed = body.trim();
   const len = charLength(trimmed);
@@ -78,7 +90,7 @@ export function CommentComposer({
   }
 
   return (
-    <form className="comment-composer" onSubmit={handleSubmit}>
+    <form className="comment-composer" ref={formRef} onSubmit={handleSubmit}>
       <textarea
         className="text-input textarea comment-textarea"
         value={body}
