@@ -3,12 +3,14 @@ import type { Session } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import { SessionContext, type SessionState } from '../lib/session';
 import { hasPassword } from '../lib/password';
+import { personalName } from '../lib/personalName';
 
 function read(session: Session | null): SessionState {
   return {
     userId: session?.user?.id ?? null,
     loading: false,
     hasPassword: hasPassword(session?.user),
+    personalName: personalName(session?.user),
   };
 }
 
@@ -25,6 +27,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     userId: null,
     loading: true,
     hasPassword: false,
+    personalName: null,
   });
 
   useEffect(() => {
@@ -36,7 +39,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
     // Keeps every screen in step with sign-in, sign-out, and token refresh
     // without any of them polling. USER_UPDATED lands here too, which is what
-    // makes hasPassword flip the moment updateUser() stores one.
+    // makes hasPassword flip the moment updateUser() stores one — and what
+    // makes the feed's greeting change the moment a name is saved, with no
+    // refetch and no reload.
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {

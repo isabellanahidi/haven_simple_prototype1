@@ -11,12 +11,17 @@ export type SessionState = {
    *  offers no other way to ask. Always false when signed out. See
    *  `hasPassword()` in src/lib/password.ts. */
   hasPassword: boolean;
+  /** The optional personal name, from auth user metadata — never from any
+   *  table. Null when signed out, and null when signed in without one. The
+   *  greeting reads this; nothing else should. See src/lib/personalName.ts. */
+  personalName: string | null;
 };
 
 export const SessionContext = createContext<SessionState>({
   userId: null,
   loading: true,
   hasPassword: false,
+  personalName: null,
 });
 
 export function useSession(): SessionState {

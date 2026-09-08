@@ -661,6 +661,29 @@ a {
 
 /* ---------- feed ---------- */
 
+/* Placed per the Figma frame: directly under the header, left-aligned, 45px
+   over 46px leading in --text-body. The frame's gap to the content below it is
+   24px, which is --sp-5.
+
+   The design sets "Hello" in Pacifico and the rest in DM Sans Bold. Neither
+   webfont is loaded — adopting them is a typography decision for its own pass,
+   since DM Sans is the design's heading face everywhere, not just here — so
+   both halves currently render in the system stack. .feed-greeting-script is
+   the seam to hang Pacifico on when that happens. */
+.feed-greeting {
+  margin: 0 0 var(--sp-5);
+  font-size: 45px;
+  line-height: 46px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text-body);
+  /* A name is user-supplied and stored outside any length-checked column, so
+     a value longer than the 40-char form allows can still arrive by hand. Wrap
+     it rather than letting it push the page sideways. */
+  overflow-wrap: anywhere;
+}
+
+
 .feed-list {
   list-style: none;
   margin: 0;

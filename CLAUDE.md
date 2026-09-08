@@ -1361,3 +1361,116 @@ only 4.5px of clearance above and below. **Anything that shrinks `--header-h`
 below 44px breaks the tap target**, and the CSS will not complain.
 
 The tab bar's own buttons are 48px and need no help.
+
+---
+
+## 18. Optional personal name, and the greeting (Sep 7)
+
+An optional real first name, used **only** to greet someone on the feed. It is
+not a profile field, not an identity, and not visible to anyone else.
+
+### THE HARD RULE
+
+> **The personal name lives in `auth.users.raw_user_meta_data` and NOWHERE
+> ELSE. It must never become a column on `profiles` or on any other table, and
+> it must never appear in a select, filter, join, or embed.**
+
+`profiles` is world-readable by design — `profiles_select` is `using (true)`,
+which section 6 relies on so signed-out visitors can read the feed. A real name
+stored next to a pseudonym would therefore be readable by **every visitor
+holding the anon key**, and would permanently tie the person to everything they
+had ever posted. This is a women's health app; that is the failure this rule
+exists to prevent.
+
+Auth metadata is returned only inside the owner's own session, which is what
+makes it the right place. **No schema change was made for this feature, and
+none should be.** If a future task seems to need the name in a query, the
+answer is that the feature is wrong, not the rule.
+
+There is exactly one way in and one way out:
+
+| | Where |
+|---|---|
+| Write | `supabase.auth.updateUser({ data: { personal_name } })` — `savePersonalName()` in `src/lib/personalName.ts`, plus the combined call in `SetPasswordForm` |
+| Read | `personalName(user)` in `src/lib/personalName.ts`, via the session context |
+
+Audit it with `grep -rn personal_name src/`. Every hit must be an
+`auth.updateUser` call or that one lib module. **A hit next to `.from(`,
+`.select(`, or `.eq(` is the bug this section exists to catch.**
+
+### Collection, in two places
+
+**After a first OTP sign-in.** The step formerly called `create-password` is
+now `optional-extras`, because it can offer two things and either may already
+be done. It renders only what the account is missing:
+
+| Missing | What renders |
+|---|---|
+| Name and password | `SetPasswordForm` with `askPersonalName`, one form, **one `updateUser` call carrying both** |
+| Password only | `SetPasswordForm` as before |
+| Name only | `PersonalNameForm` |
+| Neither | The step is skipped entirely |
+
+**One call, not two** — the same reasoning as `has_password` in section 14. Two
+calls could half-succeed, and `data` merges rather than replaces, so the two
+keys never disturb each other.
+
+**Signing in with a password still goes straight through.** That path proves a
+password exists and it never showed this step; it now also skips the name
+prompt. Only the OTP path offers either.
+
+**On `/me`**, a "Your name" section above Password. **Deliberately outside the
+profile `<form>`**: that form writes to `profiles` over PostgREST, this writes
+to auth metadata over GoTrue. Different stores, different failure modes, and
+keeping them apart is what stops a future edit from quietly folding the name
+into the profile update. Trimmed on save, capped at 40 code points via
+`charLength()` — an emoji counts once, as in section 4d finding 3.
+
+An emptied field stores `null`, not `''`, so it reads back as absent.
+
+### The greeting
+
+Placed per the Figma frame: directly under the header, left-aligned, 45px over
+46px leading in `--text-body`, with a 24px gap to the content below.
+
+| State | Renders |
+|---|---|
+| Signed in, has a name | `Hello, {name}` |
+| Signed in, no name | `Hello, Love` |
+| Signed out | Nothing |
+
+**No fetch.** The name comes from the session context, which reads it off the
+session user. `updateUser` fires `USER_UPDATED`, `SessionProvider` republishes,
+and the greeting re-renders — so a save on `/me` changes the feed with no
+reload. That is the same mechanism that already relabels the password button.
+
+**Rendered as text.** `{name}` is a JSX expression, so React escapes it —
+verified with a name of `<b>Jane</b><img src=x>`, which renders as literal
+characters. It must never be moved into `dangerouslySetInnerHTML`.
+
+`personalName()` returns null for anything that is not a non-empty string.
+Metadata is user-writable, so the stored value is not guaranteed to be a string
+at all; the `typeof` guard is what makes the greeting safe to render without
+inspecting it further. Length is not clamped on read — `overflow-wrap: anywhere`
+handles a hand-edited value that is longer than the form allows.
+
+The greeting renders on **every** feed branch, including loading, empty, and
+error, so it does not pop in after the posts land.
+
+### Two things left open
+
+**Skipping is not remembered.** The step appears whenever the name is absent,
+which is what was asked for — so someone who taps "Not now" is asked again on
+every OTP sign-in. Recording a `personal_name_skipped` flag alongside it would
+fix that, and would cost one more metadata key.
+
+**The design's fonts are not loaded.** The frame sets "Hello" in **Pacifico
+Regular** and the rest in **DM Sans Bold**, both 45px. Neither webfont is in
+the project, so both halves currently render in the system stack.
+`.feed-greeting-script` is the empty seam to hang Pacifico on. Adopting them is
+its own pass, because DM Sans is the design's heading face everywhere — post
+titles are DM Sans Bold 16 — not just in the greeting.
+
+**Copy note:** the frame reads "Hello, Jane!" with an exclamation mark; the
+strings above follow the wording that was specified for this task, which has
+none.

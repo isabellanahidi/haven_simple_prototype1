@@ -1,6 +1,8 @@
 import { useState, type FormEvent, type ReactNode } from 'react';
 import { supabase } from '../lib/supabase';
 import { PASSWORD_MIN, passwordLength, setPasswordErrorMessage } from '../lib/password';
+import { personalNameValid } from '../lib/personalName';
+import { PersonalNameInput } from './PersonalNameForm';
 
 type Props = {
   /** Prefixes the input ids so two of these can never collide on a page. */
@@ -9,6 +11,10 @@ type Props = {
   busyLabel: string;
   /** Rendered under the submit button — "Not now" on sign-in, "Cancel" on /me. */
   secondary?: ReactNode;
+  /** Also collect the optional personal name, folded into the same
+   *  updateUser() call. Set only by the post-sign-in step, and only when the
+   *  account has no name yet. */
+  askPersonalName?: boolean;
   /** Called after the password is actually stored. */
   onDone: () => void;
 };
@@ -22,16 +28,25 @@ type Props = {
  * Safari, and Safari is a different storage container from the Home Screen
  * app. "Forgot password" is the existing code path. See CLAUDE.md section 14.
  */
-export function SetPasswordForm({ idPrefix, submitLabel, busyLabel, secondary, onDone }: Props) {
+export function SetPasswordForm({
+  idPrefix,
+  submitLabel,
+  busyLabel,
+  secondary,
+  askPersonalName = false,
+  onDone,
+}: Props) {
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
+  const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const length = passwordLength(password);
   const longEnough = length >= PASSWORD_MIN;
   const matches = confirm.length > 0 && confirm === password;
-  const valid = longEnough && matches;
+  const nameOk = !askPersonalName || personalNameValid(name);
+  const valid = longEnough && matches && nameOk;
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -43,9 +58,17 @@ export function SetPasswordForm({ idPrefix, submitLabel, busyLabel, secondary, o
     // has_password rides along in the same call on purpose. Two calls could
     // leave the password set and the flag unset, which reads as "no password"
     // forever after — the client has no other way to check.
+    //
+    // The personal name rides along for the same reason, and lands in the same
+    // metadata object. `data` merges rather than replaces, so neither key
+    // disturbs the other. An empty field stores null, not "".
+    const trimmedName = name.trim();
     const { error: updateError } = await supabase.auth.updateUser({
       password,
-      data: { has_password: true },
+      data: {
+        has_password: true,
+        ...(askPersonalName ? { personal_name: trimmedName.length > 0 ? trimmedName : null } : {}),
+      },
     });
 
     setBusy(false);
@@ -57,11 +80,25 @@ export function SetPasswordForm({ idPrefix, submitLabel, busyLabel, secondary, o
 
     setPassword('');
     setConfirm('');
+    setName('');
     onDone();
   }
 
   return (
     <form className="composer" onSubmit={handleSubmit}>
+      {askPersonalName && (
+        <PersonalNameInput
+          idPrefix={idPrefix}
+          value={name}
+          onChange={(v) => {
+            setName(v);
+            setError(null);
+          }}
+          disabled={busy}
+          enterKeyHint="next"
+        />
+      )}
+
       <div className="field">
         <label className="field-label" htmlFor={`${idPrefix}-password`}>
           New password

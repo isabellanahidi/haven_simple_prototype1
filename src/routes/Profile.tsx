@@ -14,6 +14,7 @@ import { relativeTime } from '../lib/time';
 import { useRecoverStaleSession } from '../lib/authRedirect';
 import { EmptyState, ErrorState, Loading } from '../components/States';
 import { SetPasswordForm } from '../components/SetPasswordForm';
+import { PersonalNameForm } from '../components/PersonalNameForm';
 
 type Saved = { display_name: string; bio: string; avatar_emoji: string };
 
@@ -27,7 +28,7 @@ type MyPost = {
 };
 
 export default function Profile() {
-  const { userId, hasPassword } = useSession();
+  const { userId, hasPassword, personalName } = useSession();
   const navigate = useNavigate();
   const recoverStaleSession = useRecoverStaleSession();
   const [staleSession, setStaleSession] = useState(false);
@@ -35,6 +36,8 @@ export default function Profile() {
   const [signingOut, setSigningOut] = useState(false);
   const [editingPassword, setEditingPassword] = useState(false);
   const [passwordSaved, setPasswordSaved] = useState(false);
+  const [editingName, setEditingName] = useState(false);
+  const [nameSaved, setNameSaved] = useState(false);
 
   const [saved, setSaved] = useState<Saved | null>(null);
   const [posts, setPosts] = useState<MyPost[] | null>(null);
@@ -141,13 +144,13 @@ export default function Profile() {
     setSaving(true);
     setSaveError(null);
 
-    const next = { display_name: trimmedName, bio: trimmedBio, avatar_emoji: emoji };
+    const next = {
+      display_name: trimmedName,
+      bio: trimmedBio,
+      avatar_emoji: emoji,
+    };
 
-    const { data, error } = await supabase
-      .from('profiles')
-      .update(next)
-      .eq('id', userId)
-      .select();
+    const { data, error } = await supabase.from('profiles').update(next).eq('id', userId).select();
 
     setSaving(false);
 
@@ -308,6 +311,56 @@ export default function Profile() {
         </ul>
       )}
 
+      {/* Deliberately NOT part of the profile form above. That form writes to
+          `profiles`, which is world-readable; this writes to auth metadata,
+          which only this person can read. Keeping them separate keeps the two
+          stores from ever being confused for one another, and means a failure
+          in one cannot half-save the other. See src/lib/personalName.ts. */}
+      <section className="account-section">
+        <h2 className="section-heading">Your name</h2>
+
+        {editingName ? (
+          <PersonalNameForm
+            idPrefix="account"
+            initial={personalName ?? ''}
+            submitLabel="Save name"
+            busyLabel="Saving…"
+            onDone={() => {
+              setEditingName(false);
+              setNameSaved(true);
+            }}
+            secondary={
+              <button type="button" className="btn-quiet" onClick={() => setEditingName(false)}>
+                Cancel
+              </button>
+            }
+          />
+        ) : (
+          <>
+            <p className="field-hint account-note">
+              {personalName
+                ? `We greet you as ${personalName}. Only you can see this — it is never shown beside anything you post.`
+                : 'Add a name and the feed will greet you by it. Only you can see it — it is never shown beside anything you post.'}
+            </p>
+            {nameSaved && (
+              <p className="form-notice" role="status">
+                Name saved.
+              </p>
+            )}
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => {
+                setNameSaved(false);
+                setEditingName(true);
+              }}
+            >
+              {personalName ? 'Change name' : 'Add your name'}
+            </button>
+          </>
+        )}
+      </section>
+
       {/* Changing a password here is the same updateUser() call as the
           optional step after sign-up, and it works for the same reason: there
           is a live session. It is NOT a reset flow, and there deliberately
@@ -326,11 +379,7 @@ export default function Profile() {
               setPasswordSaved(true);
             }}
             secondary={
-              <button
-                type="button"
-                className="btn-quiet"
-                onClick={() => setEditingPassword(false)}
-              >
+              <button type="button" className="btn-quiet" onClick={() => setEditingPassword(false)}>
                 Cancel
               </button>
             }
@@ -340,7 +389,7 @@ export default function Profile() {
             <p className="field-hint account-note">
               {hasPassword
                 ? 'You can sign in with a password or with an emailed code.'
-                : "You sign in with an emailed code. A password is optional and just saves you the wait."}
+                : 'You sign in with an emailed code. A password is optional and just saves you the wait.'}
             </p>
             {passwordSaved && (
               <p className="form-notice" role="status">

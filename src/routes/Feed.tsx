@@ -1,14 +1,38 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
-import { useUserId } from '../lib/session';
+import { useSession } from '../lib/session';
+import { greetingName } from '../lib/personalName';
 import { author, type FeedPost } from '../lib/types';
 import { Byline } from '../components/Byline';
 import { LikeButton } from '../components/LikeButton';
 import { EmptyState, ErrorState, SkeletonCards } from '../components/States';
 
+/**
+ * Placed per the Figma frame: above the feed, left-aligned, immediately under
+ * the header.
+ *
+ * The name comes from the session context, which reads it off the session
+ * user's metadata — there is no fetch here, and there must not be one. After a
+ * save, updateUser fires USER_UPDATED, SessionProvider republishes, and this
+ * re-renders with the new name without a reload.
+ *
+ * Rendered as text. `{name}` is a JSX expression, so React escapes it; it must
+ * never be moved into dangerouslySetInnerHTML or interpolated into markup.
+ */
+function Greeting({ name }: { name: string | null }) {
+  return (
+    <h1 className="feed-greeting">
+      {/* The design sets "Hello" in Pacifico and the rest in DM Sans Bold.
+          Neither font is loaded yet, so both currently render in the system
+          stack — the span marks the seam. See CLAUDE.md section 18. */}
+      <span className="feed-greeting-script">Hello</span>, {greetingName(name)}
+    </h1>
+  );
+}
+
 export default function Feed() {
-  const userId = useUserId();
+  const { userId, personalName } = useSession();
   const [posts, setPosts] = useState<FeedPost[] | null>(null);
   const [likedIds, setLikedIds] = useState<Set<string>>(() => new Set());
   const [error, setError] = useState<string | null>(null);
@@ -55,54 +79,75 @@ export default function Feed() {
     };
   }, [userId]);
 
-  if (error) return <ErrorState title="Couldn't load the feed" message={error} />;
+  // Signed out gets no greeting at all. userId is null while the session is
+  // still resolving too, so the greeting appears once rather than flickering
+  // through a wrong state.
+  const greeting = userId ? <Greeting name={personalName} /> : null;
 
-  if (posts === null) return <SkeletonCards />;
+  if (error)
+    return (
+      <>
+        {greeting}
+        <ErrorState title="Couldn't load the feed" message={error} />
+      </>
+    );
+
+  if (posts === null)
+    return (
+      <>
+        {greeting}
+        <SkeletonCards />
+      </>
+    );
 
   if (posts.length === 0) {
     return (
-      <EmptyState
-        title="No questions yet"
-        body="Be the first to ask something."
-        action={
-          <Link className="btn-primary" to="/new">
-            Ask a question
-          </Link>
-        }
-      />
+      <>
+        {greeting}
+        <EmptyState
+          title="No questions yet"
+          body="Be the first to ask something."
+          action={
+            <Link className="btn-primary" to="/new">
+              Ask a question
+            </Link>
+          }
+        />
+      </>
     );
   }
 
   return (
-    <ul className="feed-list">
-      {posts.map((post) => (
-        // The like button is a real <button>, so it sits beside the card's
-        // <Link> rather than inside it — a button nested in an anchor is
-        // invalid, and tapping the heart would navigate.
-        <li className="post-card" key={post.id}>
-          <Link className="post-card-main" to={`/p/${post.id}`}>
-            <h2 className="post-title">{post.title}</h2>
-            {post.body && <p className="post-excerpt">{post.body}</p>}
-            <Byline author={author(post.profiles)} createdAt={post.created_at} />
-          </Link>
-          <div className="post-meta">
-            <LikeButton
-              postId={post.id}
-              initialCount={post.like_count}
-              initialLiked={likedIds.has(post.id)}
-            />
-            <Link className="stat" to={`/p/${post.id}`}>
-              <span className="stat-icon" aria-hidden="true">
-                💬
-              </span>
-              {post.comment_count}
-              <span className="sr-only">
-                {post.comment_count === 1 ? ' reply' : ' replies'}
-              </span>
+    <>
+      {greeting}
+      <ul className="feed-list">
+        {posts.map((post) => (
+          // The like button is a real <button>, so it sits beside the card's
+          // <Link> rather than inside it — a button nested in an anchor is
+          // invalid, and tapping the heart would navigate.
+          <li className="post-card" key={post.id}>
+            <Link className="post-card-main" to={`/p/${post.id}`}>
+              <h2 className="post-title">{post.title}</h2>
+              {post.body && <p className="post-excerpt">{post.body}</p>}
+              <Byline author={author(post.profiles)} createdAt={post.created_at} />
             </Link>
-          </div>
-        </li>
-      ))}
-    </ul>
+            <div className="post-meta">
+              <LikeButton
+                postId={post.id}
+                initialCount={post.like_count}
+                initialLiked={likedIds.has(post.id)}
+              />
+              <Link className="stat" to={`/p/${post.id}`}>
+                <span className="stat-icon" aria-hidden="true">
+                  💬
+                </span>
+                {post.comment_count}
+                <span className="sr-only">{post.comment_count === 1 ? ' reply' : ' replies'}</span>
+              </Link>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </>
   );
 }

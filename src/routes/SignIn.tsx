@@ -4,8 +4,10 @@ import { supabase } from '../lib/supabase';
 import { useSession } from '../lib/session';
 import { authErrorMessage, retryAfterSeconds } from '../lib/authErrors';
 import { hasPassword, signInPasswordErrorMessage } from '../lib/password';
+import { personalName } from '../lib/personalName';
 import type { SignInState } from '../lib/authRedirect';
 import { SetPasswordForm } from '../components/SetPasswordForm';
+import { PersonalNameForm } from '../components/PersonalNameForm';
 import { Loading } from '../components/States';
 
 /** Supabase's default is one OTP request per 60s per user. */
@@ -13,7 +15,10 @@ const RESEND_COOLDOWN = 60;
 /** `{{ .Token }}` renders a 6-digit code. */
 const CODE_LENGTH = 6;
 
-type Step = 'email' | 'code' | 'create-password';
+type Step = 'email' | 'code' | 'optional-extras';
+
+/** Which of the two optional things this account is still missing. */
+type Missing = { name: boolean; password: boolean };
 
 export default function SignIn() {
   const location = useLocation();
@@ -21,6 +26,10 @@ export default function SignIn() {
   const { userId, loading } = useSession();
 
   const [step, setStep] = useState<Step>('email');
+  const [missing, setMissing] = useState<Missing>({
+    name: false,
+    password: false,
+  });
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [code, setCode] = useState('');
@@ -85,7 +94,9 @@ export default function SignIn() {
 
     // shouldCreateUser defaults to true, so this one call both registers a new
     // email and signs in an existing one. No separate signup path.
-    const { error: sendError } = await supabase.auth.signInWithOtp({ email: address });
+    const { error: sendError } = await supabase.auth.signInWithOtp({
+      email: address,
+    });
     setBusy(false);
 
     if (sendError) {
@@ -190,11 +201,17 @@ export default function SignIn() {
 
     setBusy(false);
 
-    // Offer a password only to accounts that don't have one. Decided from the
-    // user this call just returned rather than from context state, so it can't
-    // race the provider catching up.
-    if (!hasPassword(data.user)) {
-      setStep('create-password');
+    // Offer each optional extra only to accounts that don't have it yet.
+    // Decided from the user this call just returned rather than from context
+    // state, so it can't race the provider catching up.
+    const needs: Missing = {
+      name: personalName(data.user) === null,
+      password: !hasPassword(data.user),
+    };
+
+    if (needs.name || needs.password) {
+      setMissing(needs);
+      setStep('optional-extras');
       return;
     }
 
@@ -224,8 +241,8 @@ export default function SignIn() {
             </p>
           ) : (
             <p className="field-hint signin-intro">
-              Reading needs no account. Posting, replying, and liking do. A code by email
-              always works — a password is optional, and only if you've made one.
+              Reading needs no account. Posting, replying, and liking do. A code by email always
+              works — a password is optional, and only if you've made one.
             </p>
           )}
 
@@ -365,30 +382,61 @@ export default function SignIn() {
         </form>
       )}
 
-      {step === 'create-password' && (
+      {/* Everything on this step is optional and skippable. It renders only
+          for what this account is actually missing, so someone who already has
+          a password is asked only for a name, and vice versa. */}
+      {step === 'optional-extras' && (
         <>
-          <h1 className="detail-title">Add a password?</h1>
+          <h1 className="detail-title">
+            {missing.name && missing.password
+              ? 'Two optional extras'
+              : missing.password
+                ? 'Add a password?'
+                : 'What should we call you?'}
+          </h1>
           <p className="field-hint signin-intro">
-            You're signed in — this is optional. A password just saves you waiting for a code
-            next time. A code by email still works, always, and it's how you get back in if you
-            forget this.
+            You're signed in — none of this is required.{' '}
+            {missing.name &&
+              'A name is only ever shown back to you, and is never attached to anything you post. '}
+            {missing.password &&
+              'A password just saves you waiting for a code next time; a code by email still works, always, and it is how you get back in if you forget it.'}
           </p>
 
-          <SetPasswordForm
-            idPrefix="signup"
-            submitLabel="Save password"
-            busyLabel="Saving…"
-            onDone={() => navigate(dest, { replace: true })}
-            secondary={
-              <button
-                type="button"
-                className="btn-quiet"
-                onClick={() => navigate(dest, { replace: true })}
-              >
-                Not now
-              </button>
-            }
-          />
+          {missing.password ? (
+            <SetPasswordForm
+              idPrefix="signup"
+              submitLabel={missing.name ? 'Save and continue' : 'Save password'}
+              busyLabel="Saving…"
+              askPersonalName={missing.name}
+              onDone={() => navigate(dest, { replace: true })}
+              secondary={
+                <button
+                  type="button"
+                  className="btn-quiet"
+                  onClick={() => navigate(dest, { replace: true })}
+                >
+                  Not now
+                </button>
+              }
+            />
+          ) : (
+            <PersonalNameForm
+              idPrefix="signup"
+              initial=""
+              submitLabel="Save and continue"
+              busyLabel="Saving…"
+              onDone={() => navigate(dest, { replace: true })}
+              secondary={
+                <button
+                  type="button"
+                  className="btn-quiet"
+                  onClick={() => navigate(dest, { replace: true })}
+                >
+                  Not now
+                </button>
+              }
+            />
+          )}
         </>
       )}
     </>
