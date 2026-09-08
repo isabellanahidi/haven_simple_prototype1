@@ -27,7 +27,10 @@ If a commit would genuinely help, say so and let the user decide.
 
 ### Schema changes go in `supabase/migrations/`
 
-Named `YYYY-MM-DD_short_description.sql`. See section 7.
+Named `YYYY-MM-DD_short_description.sql`. DDL and read-only verification only —
+**never a `rollback`**, which in the Supabase SQL Editor silently discards the
+whole paste. Transaction-wrapped probes go in `supabase/probes/` and run in
+their own submission. See section 7 and finding 4f.
 
 ---
 
@@ -201,14 +204,51 @@ purpose. Section 20 has the reasoning and the SQL; the short version:
 | Depth was implicit — the trigger only asked "does my parent have a parent?" | **`comments.depth` is stored**, computed by the same trigger |
 | Only posts can be liked | Comments can be liked, via `comment_likes` + `comments.like_count` |
 
-**The DDL is drafted but NOT applied.** Until it is run in the SQL Editor, the
-database still rejects a reply-to-a-reply and has no `comment_likes` table, so
-sections 4c and 8 still describe the live behaviour.
+**Applied Sep 7** (second attempt — see finding 4f). The database now accepts
+nesting to depth 100 and has `comment_likes`. **The client has not caught up**:
+sections 4c and 8 still describe the UI, which is still one-level.
 
 **Findings 4a–4d still hold in full.** In particular finding 4a — an update or
 delete filtered out by RLS returns `200` with an empty array and no error — now
 applies to `comment_likes` exactly as it does to `likes`, so an unlike must
 check the returned row count rather than trusting the absence of an error.
+
+### 4f. The SQL Editor runs a whole paste as ONE transaction (Sep 7)
+
+**A `rollback;` anywhere in a submission discards everything above it in that
+same run — DDL included — and nothing tells you.**
+
+This is not a hypothetical. The `2026-09-07` migration was pasted with two
+`begin … rollback` probes at the end of it. Every statement reported success,
+**both verification queries confirmed the change**, and afterwards the database
+had none of it. The verify queries were reading uncommitted state inside the
+transaction that was about to be thrown away.
+
+That combination — green statements, a green verification query, and no change
+— is the worst shape a failure can take, because the verification is the thing
+you would normally trust to catch it.
+
+**The rule that follows:**
+
+> Anything containing `rollback` runs in **its own separate submission**, never
+> in the same paste as a migration.
+
+So the repo splits them:
+
+| Directory | Contains | May contain `rollback`? |
+|---|---|---|
+| `supabase/migrations/` | DDL and read-only verification queries | **No** |
+| `supabase/probes/` | Transaction-wrapped probes that insert, report and undo | Yes — and each file says so at the top |
+
+Two related things worth carrying:
+
+- **Re-running a migration is the cheap recovery.** Every statement in the
+  `2026-09-07` file is `if not exists` / `or replace` / `drop … if exists`, so
+  a paste that silently rolled back can simply be run again. Keep new
+  migrations idempotent for exactly this reason.
+- **Verify in a separate submission from the DDL** if you want the verification
+  to mean anything. A query in the same transaction as the change can only tell
+  you the change is *pending*, not that it committed.
 
 ### 4c. Reply composer verified against the live project (Day 2)
 
@@ -225,8 +265,8 @@ check the returned row count rather than trusting the absence of an error.
 
 **The UI never offers a reply-to-a-reply.** Only top-level comments render a Reply button, so the trigger is a backstop rather than a routine path — but the error is surfaced, not swallowed, because a silent no-op after typing a reply is the worst outcome.
 
-> **Superseded Sep 7 (section 20).** Once the DDL is applied, a reply to a
-> reply is legal and the Reply button belongs on every comment. The `P0001`
+> **Superseded Sep 7 (section 20).** The DDL is applied, so a reply to a reply
+> is now legal at the database and the Reply button belongs on every comment. The `P0001`
 > row above stays true — `commentErrorMessage` returns `error.message`
 > verbatim for that code, so the trigger's *new* messages surface correctly
 > with no client change. Only the doc comment in `src/lib/comments.ts`, which
@@ -378,9 +418,11 @@ The convention started Sep 7, so it is not retrospective: the original schema be
 | File | Covers | Applied? |
 |---|---|---|
 | — | The original four tables, triggers and RLS below | yes, by hand |
-| `2026-09-07_nesting_and_comment_likes.sql` | Unlimited nesting + `comments.depth`, `comment_likes`, `comments.like_count` | **not yet — see section 20** |
+| `2026-09-07_nesting_and_comment_likes.sql` | Unlimited nesting + `comments.depth`, `comment_likes`, `comments.like_count` | **yes, Sep 7** (on the second attempt — see 4f) |
 
-**Section 7 below already describes the post-migration schema.** The live database is behind it until that file is run.
+**Section 7 below matches the live database.** Both migrations in the table above have been applied.
+
+`supabase/probes/` sits alongside `supabase/migrations/` and holds the transaction-wrapped probes that were split out of that migration. **Probes never live in a migration file** — finding 4f explains what that cost.
 
 ```sql
 -- ============================================================
@@ -817,7 +859,7 @@ The cascade on `handle_new_user` also removes its trigger on `auth.users`, which
 | Route | Screen | Behavior |
 |---|---|---|
 | `/` | Feed | Newest 50 posts. Each card: title, author display name + emoji, like count, comment count, relative timestamp. Tapping opens detail. |
-| `/p/:id` | Post detail | Full post, like button, comment list (one level of nesting), reply composer. |
+| `/p/:id` | Post detail | Full post, like button, **threaded** comments to any depth with per-comment likes, reply composer. See section 21. |
 | `/new` | Create post | Title + body, character counters matching the DB constraints, submit → redirect to the new post. |
 | `/me` | Profile edit | Edit `display_name`, `bio`, `avatar_emoji`. Optionally list the user's own posts. |
 
@@ -832,7 +874,7 @@ const { data } = await supabase
   .limit(50);
 ```
 
-**The `!posts_author_id_fkey` is required, not decoration.** `posts` reaches `profiles` two different ways — many-to-one via `author_id`, and many-to-many via the `likes` join table. A bare `profiles(...)` is ambiguous, and PostgREST refuses to guess: it returns HTTP 300 with `PGRST201`, "Could not embed because more than one relationship was found". Naming the foreign key picks the author edge. Verified against the live project on Day 2. **Comments are unaffected** — `comments` reaches `profiles` only through `author_id`, so `profiles(display_name, avatar_emoji)` is unambiguous there and works as written. This trap will reappear on any future `posts → profiles` embed.
+**The `!posts_author_id_fkey` is required, not decoration.** `posts` reaches `profiles` two different ways — many-to-one via `author_id`, and many-to-many via the `likes` join table. A bare `profiles(...)` is ambiguous, and PostgREST refuses to guess: it returns HTTP 300 with `PGRST201`, "Could not embed because more than one relationship was found". Naming the foreign key picks the author edge. Verified against the live project on Day 2. **Comments are unaffected** — `comments` reaches `profiles` only through `author_id`, so `profiles(display_name, avatar_emoji)` is unambiguous there and works as written. **`comment_likes` is a second path from `comments` to a profile**, but it points the other way (`comment_likes` → `comments`), so the comment embed stays unambiguous. This trap will reappear on any future `posts → profiles` embed.
 
 For "did I like this?", **fetch the current user's likes separately** and hold them in a `Set` — don't embed `likes(user_id)` into the feed query, since that pulls every like row for every post:
 ```ts
@@ -1751,13 +1793,14 @@ link colour and the focus ring were verified in the running app.
 
 ---
 
-## 20. Unlimited comment nesting and comment likes — DDL drafted, NOT APPLIED (Sep 7)
+## 20. Unlimited comment nesting and comment likes — APPLIED (Sep 7)
 
-**Status: SQL drafted, waiting to be run in the SQL Editor.** Nothing in the
-database has changed yet. Section 7 already describes the post-change schema,
-because section 7 is the authoritative reference and a fresh session must not
-build against the old one — but the live project is behind it until this is
-applied.
+**Status: applied to the live database.** It took two attempts: the first paste
+included the `begin … rollback` probes, which discarded the whole submission
+while every statement and both verification queries reported success. That is
+finding **4f**, and it is why probes now live in `supabase/probes/`.
+
+Section 7 matches the live database.
 
 Two decisions locked in section 2 and cut in section 3 are deliberately
 reversed. Sections 3, 4, 7 and 7a have been updated to match.
@@ -1833,10 +1876,10 @@ Two things that follow and are easy to misread:
   number there; the feed reads the column, which is right for a cheap
   denormalised count.
 
-### The client work this implies — none of it done
+### The client work this implies — DONE Sep 7, see section 21
 
-Applying the DDL does not by itself make the UI threaded. What it breaks or
-leaves stale:
+All five items below are addressed. Kept as the record of what the migration
+left broken.
 
 1. **`PostDetail.tsx` renders a flat two-pass group-by** — top-level comments
    with a single `replies` array each. That structure cannot represent depth 2
@@ -1863,5 +1906,145 @@ transaction-wrapped probes that insert, report, and roll back — one proving a
 third-level reply is now accepted, one proving the like counter moves both
 ways.
 
+The two `begin … rollback` probes that were originally in this file now live in
+`supabase/probes/2026-09-07_nesting_and_comment_likes_probes.sql`, with the
+warning from finding 4f at the top. **Run that file on its own, never beside a
+migration.**
+
 **Uncommitted, and it stays that way** — per section 0, every change is left in
 the working tree for the user to review and commit.
+
+---
+
+## 21. Threaded comments and comment likes — the UI (Sep 7)
+
+The client half of section 20. `/p/:id` now renders a real tree and every
+comment can be liked.
+
+### Data — two queries, no waterfall
+
+Comments load in one query ordered by `created_at` with `depth` and
+`like_count` selected, capped at **`COMMENT_LIMIT` = 500**. Generous rather
+than paginated on purpose: threading needs the whole tree in hand, and a
+partial fetch orphans every child whose parent fell outside the window.
+
+**My likes on this post's comments load in the same parallel batch**, not in a
+second round trip after the ids are known:
+
+```ts
+supabase.from('comment_likes')
+  .select('comment_id, comments!inner(post_id)')
+  .eq('user_id', userId)
+  .eq('comments.post_id', id)
+```
+
+The `!inner` embed turns the join into a filter, so every reply knows its liked
+state on **first** render rather than popping in afterwards. **This is the one
+piece not verified against the live project** — the database has no comments
+yet. If it misbehaves the fallback is `.in('comment_id', ids)` after the
+comments resolve, at the cost of a waterfall. A failure here is not fatal:
+hearts render empty, exactly as the feed already treats its own likes query.
+
+### The tree
+
+`buildCommentTree()` in `src/lib/comments.ts`. PostgREST cannot recurse, so
+rows arrive flat and parenting happens on the client.
+
+**Orphans are promoted to roots, not dropped.** A parent can be missing for two
+legitimate reasons — it is `hidden` and RLS filtered it out, or it fell outside
+`COMMENT_LIMIT`. Silently discarding its subtree would lose real replies with
+no sign anything was missing.
+
+`descendantCount` is counted bottom-up in a single reverse pass. Rows arrive
+oldest-first and a parent always predates its children, so walking backwards
+guarantees every child is counted before its parent is read.
+
+### Depth comes from the row, never from the tree
+
+`comment.depth`, written by `enforce_comment_depth()`. Computing it from the
+tree would be a second, divergent answer to a question the database already
+settled — and it would be wrong for an orphan, whose true depth is not its
+position in the rendered tree.
+
+The one exception is the optimistic placeholder, which guesses `parent.depth +
+1` purely for its indent and is replaced by the server's row moments later.
+
+### Indent, and the trap in capping it
+
+Indent grows to **`MAX_INDENT_DEPTH` = 5**. Deeper replies render at the
+level-5 offset with a `replying to {name}` line, so the relationship survives
+the loss of the visual cue.
+
+**The cap needs to remove two things, and missing the second is easy.** The DOM
+nests for real, so each level's indent is the sum of `.reply-list`'s
+`padding-left` *and* the nested `.comment`'s own `padding-left` — 12px each.
+Zeroing only the list halves the step instead of stopping it, and the tree
+keeps marching right at half speed. It looked fixed in code review and was
+caught only by rendering depths 6–8 and measuring. Both rules live together
+under `.comment-indent-capped`; **change them as a pair.**
+
+The cap is driven by a class rather than a `data-depth` number so the CSS does
+not duplicate the constant.
+
+### Collapse
+
+Replies at depth ≥ **`COLLAPSE_FROM_DEPTH` = 2** start collapsed behind a
+toggle. So a top-level comment shows its direct replies, and anything under
+those is behind `"3 replies"`.
+
+**The count is the whole subtree, not direct children** — that is what
+collapsing actually hides, and "3 replies" concealing a subtree of ten would be
+a lie.
+
+State is a `Map<string, boolean>` of user overrides, in memory only; the
+default is recomputed from depth on reload. The toggle is a full-width 44px
+target, because it is the control that reveals hidden content.
+
+**Replying into a collapsed thread force-opens it.** Without that the reply
+lands somewhere the person cannot see.
+
+### Likes on comments
+
+`useLikeToggle` in `src/lib/useLikeToggle.ts` is now the **single** home of the
+optimistic-like behaviour; `LikeButton` and `CommentLikeButton` are thin
+wrappers over it, differing only in table and column.
+
+**Extracting it was a judgement call worth knowing about.** `likes` and
+`comment_likes` are deliberately separate tables, so duplicating the component
+would have been the literal mirror. But finding 4b's rollback rules are subtle
+enough — two of the three failure paths deliberately do *not* roll both fields
+back — that two copies would have drifted the first time either was touched.
+`LikeButton` was rewritten to use the hook, so post likes now run through code
+that is shared rather than merely similar.
+
+The rules are unchanged and restated in the hook: `23505` on insert keeps
+`liked = true` and undoes only the increment; zero rows on delete keeps
+`liked = false` and undoes only the decrement; only a real transport or policy
+error rolls both back. Every write uses `.select()` and checks the row count,
+per finding 4a.
+
+A pending comment's like button is disabled — there is no server id to like yet.
+
+### Errors and counts
+
+Unchanged and still centralised. `commentErrorMessage` returns `error.message`
+verbatim for `P0001`, which is why the trigger's rewritten messages needed no
+client edit. The reply total still counts the loaded list, which now includes
+every depth.
+
+### Keyboard avoidance
+
+An inline composer opened deep in a thread is usually below the fold, and on
+iOS the keyboard then covers the field that just took focus. On autofocus it
+calls `scrollIntoView({ block: 'center' })`, and `.comment-composer` carries a
+`scroll-margin-bottom` that clears the fixed tab bar plus its safe-area inset —
+so "into view" means genuinely visible rather than tucked behind the nav.
+
+### What has NOT been verified
+
+**The database has no comments**, so none of this has run against real data.
+Threading, the indent cap, the collapse toggle and the flattened context line
+were verified by rendering a mocked depth-8 tree against the *built*
+stylesheet. What that cannot exercise: the `comment_likes` `!inner` query, the
+optimistic insert at depth, the counter trigger round trip, and keyboard
+avoidance on a real keyboard.

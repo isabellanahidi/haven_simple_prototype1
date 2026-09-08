@@ -1,4 +1,22 @@
 -- ============================================================
+-- 2026-09-07 — Unlimited comment nesting + comment likes
+--
+-- STATUS: APPLIED.
+--
+-- Contains DDL ONLY. The two verification probes that used
+-- `begin ... rollback` were moved to
+--   supabase/probes/2026-09-07_nesting_and_comment_likes_probes.sql
+-- because the Supabase SQL Editor runs a pasted submission as ONE
+-- transaction: a rollback anywhere in the paste discards the DDL above
+-- it, while the verify queries in the same run still report success.
+-- That is exactly how this file first appeared to apply and had not.
+-- See CLAUDE.md section 4f.
+--
+-- Safe to re-run: every statement is if-not-exists / or-replace /
+-- drop-if-exists.
+-- ============================================================
+
+-- ============================================================
 -- BLOCK 1 — Nesting: store depth, raise the ceiling to 100
 -- Run top to bottom in one paste. Order matters (see 1c).
 -- ============================================================
@@ -106,34 +124,6 @@ select
      where tgname = 'comments_depth_check' and not tgisinternal)            as trigger_enabled;
 
 
--- ---------- OPTIONAL: prove the reversal actually works ----------
--- Inserts a 3-deep chain (previously rejected at level 2) and rolls it back,
--- so nothing survives. Read the NOTICE output.
-begin;
-do $$
-declare
-  pid uuid; aid uuid; c0 uuid; c1 uuid; c2 uuid; d int;
-begin
-  select id into pid from public.posts limit 1;
-  select id into aid from public.profiles limit 1;
-  if pid is null or aid is null then
-    raise notice 'No post or profile to test against — skipped.';
-    return;
-  end if;
-
-  insert into public.comments (post_id, author_id, body)
-       values (pid, aid, 'depth probe 0') returning id into c0;
-  insert into public.comments (post_id, author_id, parent_id, body)
-       values (pid, aid, c0, 'depth probe 1') returning id into c1;
-  insert into public.comments (post_id, author_id, parent_id, body)
-       values (pid, aid, c1, 'depth probe 2') returning id into c2;
-
-  select depth into d from public.comments where id = c2;
-  raise notice 'Third-level reply accepted, depth = %. Before this change it raised P0001.', d;
-end $$;
-rollback;
-
-
 -- ============================================================
 -- BLOCK 2 — Comment likes
 -- Mirrors public.likes exactly. Two narrow tables rather than one
@@ -227,31 +217,6 @@ select policyname, cmd, qual, with_check
   from pg_policies
  where schemaname = 'public' and tablename in ('likes', 'comment_likes')
  order by tablename, policyname;
-
-
--- ---------- OPTIONAL: prove the counter fires both ways ----------
-begin;
-do $$
-declare
-  cid uuid; uid uuid; after_insert int; after_delete int;
-begin
-  select id into cid from public.comments limit 1;
-  select id into uid from public.profiles limit 1;
-  if cid is null or uid is null then
-    raise notice 'No comment or profile to test against — skipped.';
-    return;
-  end if;
-
-  insert into public.comment_likes (user_id, comment_id) values (uid, cid);
-  select like_count into after_insert from public.comments where id = cid;
-
-  delete from public.comment_likes where user_id = uid and comment_id = cid;
-  select like_count into after_delete from public.comments where id = cid;
-
-  raise notice 'like_count after insert = %, after delete = % (expect n+1 then n).',
-    after_insert, after_delete;
-end $$;
-rollback;
 
 
 -- ============================================================
