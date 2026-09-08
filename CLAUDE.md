@@ -1200,6 +1200,9 @@ delete whenever someone is in there.
 
 ### Palette differences, recorded but NOT applied
 
+**Superseded Sep 7 by section 17 — the design's palette was adopted.** Kept
+for the record of what the difference was when the shell landed.
+
 Colour was out of scope for this pass. The design's values differ from the
 locked palette in two places, both left alone:
 
@@ -1242,3 +1245,119 @@ screens have not been compared.
 900px. Note that macOS Chrome clamps a headless window to a ~500px minimum
 width, so a `--window-size=393` screenshot silently lays out at 500 and looks
 broken — that is the tool, not the CSS. Screenshot at 500 or wider.
+
+---
+
+## 17. Palette adopted from Figma, and the nav heights re-read (Sep 7)
+
+Same frame as section 16: `Main-HomeTab`, `node-id=2068-170`. Two changes —
+the nav bar heights now come from the frame, and **the placeholder palette is
+gone**. `#FBF0F2` / `#6E2639` are no longer anywhere in the project.
+
+### Where the colours came from, and where they did not
+
+**`get_variable_defs` returns only two typography variables for this frame, and
+`getLocalVariableCollectionsAsync()` returns an empty array.** The file has no
+colour variables at all. The **Style Guide page is an unfilled template** — it
+has the headings "Primary Color Palette:", "Primary Font:" and "Icon States &
+Navigation:" with no swatches under them.
+
+So every colour below was read off a fill or stroke on the frame itself. **If
+someone later fills in that Style Guide page, it — not this table — becomes the
+source of truth, and these values should be re-checked against it.**
+
+| Figma element | CSS variable | Value |
+|---|---|---|
+| Frame fill | `--bg` | `#feedf1` |
+| Card / input / bottom bar / header button fill | `--surface` | `#ffffff` |
+| `BottomNavigation` stroke | `--border` | `#e5e7eb` |
+| Post title (16px DM Sans Bold) | `--text` | `#221003` |
+| Post body, "Hello, Jane!" | `--text-body` | `#3d1307` |
+| "2h" timestamp | `--text-muted` | **`#77544d` — not the design's value, see below** |
+| Active tab, avatar, icons, like counts | `--button` | `#9f2042` |
+| "New Discussions" pill | `--button-deep` | `#7b0d1e` |
+| Text on the brand colour | `--on-button` | `#ffffff` |
+| Heart + count (brand-coloured in the design) | `--like` | `var(--button)` |
+| — derived, `--button` at 10% over `--surface` | `--like-soft` | `#f5e9ec` |
+| — the header button's drop shadow | `--shadow` | `rgb(0 0 0 / 0.1)` |
+
+**`--accent` (`#3d5afe`), `--accent-soft` and `--danger` were NOT changed and
+are NOT from Figma.** The frame contains no link, no focus ring and no error
+state, so the design expresses no opinion on them. `--accent` is the one that
+shows: back-links still render blue on a warm pink screen. Adopting `--button`
+for links and focus rings is the obvious follow-up, but it is a design decision
+rather than a value this pass could extract, so it was left alone deliberately.
+
+### The one colour that was rejected
+
+**Figma's `#99a1af` timestamp grey fails contrast and was not shipped** —
+2.30:1 on `--bg` and 2.60:1 on `--surface`, against a 4.5 floor. `--text-muted`
+is instead `--text-body` at 70% over `--bg` (`#77544d`), which keeps the warm
+family the rest of the palette establishes rather than reintroducing a cool
+grey, and measures 5.89:1 on `--bg` and 6.65:1 on `--surface`.
+
+Every other combination the stylesheet can produce was checked and passes 4.5.
+The tightest is **`--accent` on `--bg` at 4.54:1** — it passes, but it has no
+headroom, so any future darkening of `--bg` will push links under the line.
+The one exemption is the disabled `.btn-primary` label at 5.37:1 on `--border`,
+which passes anyway.
+
+**There are no hardcoded colours left in `src/styles.css` outside `:root`.**
+The two that existed — `#fff` on `.btn-primary` and a doubled
+`rgb(0 0 0 / 0.1)` in the header button's shadow — became `--on-button` and
+`--shadow`. Worth re-running `grep -nE '#[0-9a-fA-F]{3,8}|rgba?\(' src/styles.css`
+after any future colour work; the check is cheap and the drift is silent.
+
+### Colour outside the stylesheet
+
+Three places hold colour that CSS variables cannot reach, and all three now
+track `--bg`:
+
+| File | Field | Value |
+|---|---|---|
+| `index.html` | `<meta name="theme-color">` | `#feedf1` |
+| `public/manifest.json` | `theme_color` | `#feedf1` |
+| `public/manifest.json` | `background_color` | `#feedf1` |
+| `scripts/make-icons.mjs` | `BACKGROUND` | `#feedf1` |
+
+`theme_color` was `#ffffff` and disagreed with `index.html`'s `#fbf0f2`. Both
+are now `--bg`, which is correct for the current shell: the header is
+transparent over the page background, so there is no white bar for a white
+theme colour to match. **Section 12's manifest table still describes the old
+values and is stale on this point.**
+
+**The icons were regenerated** — `node scripts/make-icons.mjs` — because the
+canvas background changed. Re-verified: 180/192/512, corner pixel `#feedf1`,
+3 channels, `hasAlpha: false`, square corners.
+
+### Nav heights, now read from the frame
+
+| | Was | Now | Source |
+|---|---|---|---|
+| Header | `safe + 68px`, implied by padding | **`--header-h: 53px`** | Logo top (y=63) to first content element (y=116) |
+| Bottom bar | `--tabbar-h: 80px` | **unchanged** | The `BottomNavigation` node measures exactly 80 |
+
+The header lost 15px. **The design draws no header container**, so 53px is a
+measured span rather than a value read off a node — the logo and the settings
+button are loose children of the frame, and the band that holds them runs from
+the top of the logo to the top of "Hello, Jane!".
+
+Both compose with the inset at the point of use rather than baking it in:
+`.app-header` is `height: calc(var(--header-h) + env(safe-area-inset-top))`
+with `padding-top: env(safe-area-inset-top)`, so the controls sit in the same
+53px band whether the inset resolves to 59px or to zero.
+
+**The bottom bar was already frame-accurate at 80px.** If it still reads thick,
+that is the design's own number and changing it is a design decision, not a
+fidelity fix.
+
+### The 44px trade-off, and where it bites
+
+It comes up in exactly one place, and it is survivable: **the header's settings
+button is 40px in Figma.** The circle stays 40px and `.icon-btn::after` with
+`inset: -2px` carries the hit area to 44×44 — unchanged from section 16, but
+worth re-stating because the header band is now 53px, so a 44px target leaves
+only 4.5px of clearance above and below. **Anything that shrinks `--header-h`
+below 44px breaks the tap target**, and the CSS will not complain.
+
+The tab bar's own buttons are 48px and need no help.

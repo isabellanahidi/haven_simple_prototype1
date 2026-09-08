@@ -9,7 +9,7 @@
  *
  * Composition decisions, all of which have a reason:
  *
- *  - Solid #fbf0f2 fill across the whole square, and the alpha channel is
+ *  - Solid #feedf1 fill across the whole square, and the alpha channel is
  *    stripped from the output. iOS renders transparent pixels in a home-screen
  *    icon as black, so a PNG that merely *looks* opaque is not enough — the
  *    channel has to be gone.
@@ -23,7 +23,7 @@ import sharp from 'sharp';
 import { readFile } from 'node:fs/promises';
 
 const SOURCE = 'public/havenlogo.svg';
-const BACKGROUND = '#fbf0f2'; // --bg, and the manifest's background_color
+const BACKGROUND = '#feedf1'; // --bg, and the manifest's background_color
 const LOGO_SCALE = 0.65;      // fraction of canvas width
 
 const TARGETS = [
