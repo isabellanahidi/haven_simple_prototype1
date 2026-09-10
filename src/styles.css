@@ -721,19 +721,24 @@ a {
 
 /* The outlined "Hello,".
 
-   Sized in em, so it follows --fs-greeting: the source art is 120.708 x 38.745
-   units at a 45px type size, which is 2.6824em x 0.861em.
+   Sized in em, so it follows --fs-greeting. The source art is 120.708 x 38.745
+   units at a 45px type size — 2.6824em x 0.861em at 1:1 — drawn here at
+   --script-scale of that. 1.25 is a deliberate override rather than the
+   frame's value: the frame sets the lettering at the same size as the name.
+   Change the scale and both derived lengths follow, vertical-align included.
 
    vertical-align is the whole trick. An inline SVG's baseline is its bottom
-   edge, and this box runs 7.245px BELOW the lettering's own baseline because
-   the comma descends. Without the shift the lettering would ride 7.245px high
-   against the name. -0.161em is that descent expressed against the same type
-   size. If the viewBox is ever re-cropped, this number moves with it. */
+   edge, and this box runs BELOW the lettering's own baseline because the comma
+   descends — 7.245px at 1:1, so 0.161em, scaling with everything else. Without
+   the shift the lettering would ride that far high on its line. If the viewBox
+   is ever re-cropped, the 0.161 moves with it. */
 .feed-greeting-script {
+  --script-scale: 1.25;
+
   display: inline-block;
-  width: 2.6824em;
-  height: 0.861em;
-  vertical-align: -0.161em;
+  width: calc(2.6824em * var(--script-scale));
+  height: calc(0.861em * var(--script-scale));
+  vertical-align: calc(-0.161em * var(--script-scale));
 }
 
 /* The name sits on its own line directly under the lettering, left-aligned
@@ -963,32 +968,35 @@ a {
   /* Full height. --sheet-top is the distance from the top of the viewport to
      the sheet's top edge when expanded.
 
-     IT CLEARS THE SEARCH FIELD, WHICH THE FRAME DOES NOT. Frame 192:804 puts
-     the drawer's top edge at y=231, exactly the search field's own top, so
-     taken literally the field disappears the moment the sheet opens. This is
-     a deliberate departure: the field stays visible in both snap states.
+     IT LANDS ON THE SEARCH FIELD'S TOP EDGE, so the expanded sheet covers the
+     field completely and the greeting is what stays visible above it. That is
+     also where frame 192:804 draws it (y=231). The stack deliberately stops at
+     the greeting's bottom margin — there is no --tap term, because the field
+     is meant to be underneath rather than cleared.
 
      Built from the stack above it rather than as one number, so the terms that
      already have tokens follow them:
 
        --sp-3   .app-main's top padding
-       93px     the greeting — two 46px lines, the first a shade taller
-                because the comma hangs below the baseline. The one hardcoded
-                term; see the note on stability below.
-       --sp-5   .feed-greeting's bottom margin
-       --tap    the search field's height
-       --sp-3   the gap left under the field
+       95px     the greeting — a 46px line for the name under a taller line
+                for the lettering, which hangs below its baseline for the
+                comma. The one hardcoded term; see the note below.
+       --sp-5   .feed-greeting's bottom margin, which is where the field starts
+       --sp-1   subtracted: a 4px overlap onto the field. Landing exactly on
+                its top edge leaves 0.05px of slack, and the field is a white
+                pill on a pink page, so a device-pixel rounding the wrong way
+                would show a hairline of it above the sheet.
 
      A FIXED OFFSET, NOT A MEASUREMENT, and it is worth knowing where that
-     holds. Signed out there is no greeting at all, so the field sits 117px
-     higher and the sheet merely starts lower than it needs to — never over the
-     field. The case this cannot cover is a personal name long enough to wrap
-     to a second line, which pushes the field down under the sheet's full
-     position. If that starts happening, the fix is to measure the field's
-     bottom and write it into this variable, not to grow the 93px. */
+     holds. Signed out there is no greeting at all, so the field sits ~119px
+     higher than this and the sheet leaves the top of it showing. The other
+     case is a personal name long enough to wrap to a second line, which pushes
+     the field down and leaves its bottom showing. Either one is fixed by
+     measuring the field and writing its top into this variable — not by
+     nudging the 95px, which would only move the failure. */
   --sheet-top: calc(
-    env(safe-area-inset-top) + var(--header-h) + var(--sp-3) + 93px + var(--sp-5) +
-      var(--tap) + var(--sp-3)
+    env(safe-area-inset-top) + var(--header-h) + var(--sp-3) + 95px + var(--sp-5) -
+      var(--sp-1)
   );
   height: calc(
     100dvh - var(--sheet-top) - var(--tabbar-h) - env(safe-area-inset-bottom)
@@ -998,9 +1006,9 @@ a {
   display: flex;
   flex-direction: column;
   border-radius: 24px 24px 0 0;
-  /* No background here — it is painted by ::before at 75%. The shadow stays at
-     full strength: it is what still reads the sheet's edge against the page
-     once the surface itself is mostly transparent. */
+  /* No background here — it is painted by ::before, which is also what frosts
+     the page behind it. The shadow stays at full strength: it is what reads
+     the sheet's edge against the page once the surface is translucent. */
   box-shadow:
     0 10px 15px var(--shadow),
     0 4px 6px var(--shadow);
@@ -1014,17 +1022,24 @@ a {
   will-change: transform;
 }
 
-/* THE SURFACE, AND THE ONLY THING THAT IS TRANSLUCENT.
+/* THE SURFACE: FROSTED GLASS, AND THE ONLY THING THAT IS TRANSLUCENT.
 
-   `opacity: 0.75` on .sheet itself would take the post cards, the titles and
-   the hearts down with it — the whole subtree fades, and the text goes soft
-   against the page showing through it. So the background is lifted onto a pseudo-element that carries the
-   opacity alone, and the sheet's real children paint over it at full strength.
+   Any `opacity` on .sheet itself would take the post cards, the titles and the
+   hearts down with it — the whole subtree fades and the text goes soft against
+   the page showing through. So the surface is lifted onto a pseudo-element and
+   the sheet's real children paint over it at full strength.
 
-   opacity on this layer rather than a translucent colour because the surface
-   is two layers — the frame's pale #f5b3c1 wash over --bg — and fading each
-   one separately composites to about 79%, not 75%. Fading the composite is the
-   only way the number means what it says.
+   NO `opacity` PROPERTY HERE, ON PURPOSE. An element carrying both `opacity`
+   and `backdrop-filter` is composited as one group: the blurred backdrop is
+   blended back toward the unblurred original by whatever the opacity leaves
+   over, which reads as a smeared half-frost rather than glass. The 85% lives
+   in the colour instead, which composites the same way and leaves
+   backdrop-filter alone.
+
+   The colour is the frame's #f5b3c1 wash over --bg taken to 85% — the same
+   two-stop gradient as before, with each stop pre-composited so there is one
+   translucent layer rather than two stacked ones. Nested color-mix keeps --bg
+   the source rather than baking a derived hex into the stylesheet.
 
    Absolutely positioned, which is also what keeps it out of the flex flow: a
    static ::before in a flex container would become a flex item and push the
@@ -1036,10 +1051,14 @@ a {
   inset: 0;
   z-index: -1;
   border-radius: inherit;
-  opacity: 0.75;
-  background:
-    linear-gradient(to bottom, rgb(245 179 193 / 0.08), rgb(245 179 193 / 0.16)),
-    var(--bg);
+  background: linear-gradient(
+    to bottom,
+    color-mix(in srgb, color-mix(in srgb, #f5b3c1 8%, var(--bg)) 85%, transparent),
+    color-mix(in srgb, color-mix(in srgb, #f5b3c1 16%, var(--bg)) 85%, transparent)
+  );
+  /* Safari has shipped the prefixed form since iOS 9; unprefixed is 18+. */
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
   pointer-events: none;
 }
 

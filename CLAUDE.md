@@ -2233,6 +2233,11 @@ CSS and markup only. No data, no schema, no query.
 
 ### 1. The drawer surface is 75% — and `opacity` on the container was wrong
 
+> **Superseded Sep 10 — the surface is frosted glass now: 85% in the colour,
+> plus a 14px `backdrop-filter`, and no `opacity` property at all. See
+> section 25.** The reasoning below is why it is on a pseudo-element rather
+> than the container, which has not changed.
+
 **`opacity` on `.sheet` fades the post cards with it.** Opacity applies to the
 whole subtree, so the titles, the excerpts and the hearts would go translucent
 along with the surface and read soft against whatever shows through. That is
@@ -2391,7 +2396,15 @@ would mean a negative margin tuned to the metrics of a font that is not even
 the design's face yet. **When the DM Sans pass lands, re-measure this rather
 than assuming it still holds.**
 
+> **Sep 10: the lettering is 1.25x and the gap is now 49.05px — and the visual
+> gap between the two lines did not move at all. See section 25.**
+
 ### 2. The full snap point clears the search field
+
+> **Superseded Sep 10 — reversed. The expanded sheet now covers the field
+> completely, which is what the frame does. See section 25.** The stability
+> note at the end of this subsection still holds, with its conclusion flipped:
+> the cases that used to leave the field covered now leave part of it showing.
 
 **The frame puts the drawer's top edge at `y=231`, which is exactly the search
 field's own top — so the design covers the field the moment the sheet opens.**
@@ -2460,3 +2473,122 @@ Chrome at 500px, where `env(safe-area-inset-top)` resolves to zero — so the
 93px greeting term and the 11.77px gap under the search field are both worth
 re-checking on a notched device, since that is where the header band and the
 sheet's top both shift.
+
+---
+
+## 25. Frosted drawer, covered field, bigger lettering (Sep 10)
+
+CSS only — one file, `src/styles.css`. No data, no schema, no query, and no
+markup.
+
+### 1. The full snap point covers the search field
+
+**Reversed from section 24, back to what the frame draws.** `--sheet-top` is
+still built from the token stack; the `--tap` and gap terms are gone and one
+new term is subtracted:
+
+| Term | Why |
+|---|---|
+| `env(safe-area-inset-top)` | the notch |
+| `var(--header-h)` | 53px |
+| `var(--sp-3)` | `.app-main`'s top padding |
+| **95px** | the greeting — a 46px line for the name under a taller line for the lettering. Measured at 95.05. The one hardcoded term. |
+| `var(--sp-5)` | `.feed-greeting`'s bottom margin, which is where the field starts |
+| **− `var(--sp-1)`** | 4px of overlap onto the field |
+
+**That last term is not decoration.** Without it the sheet lands at 184 against
+a field top of 184.05 — 0.05px of slack. The field is a white pill on a pink
+page, so a device-pixel rounding the wrong way would show a hairline of it
+above the sheet's edge. 4px is cheap and removes the question.
+
+**Verified at both snap points:** expanded, sheet top **180** against a field
+top of **184.05** — fully covered. Peek is unchanged and the field is nowhere
+near it.
+
+**The stability caveat flips direction.** Signed out there is no greeting, so
+the field sits ~119px higher and the sheet now leaves the *top* of it showing;
+a personal name long enough to wrap pushes the field down and leaves its
+*bottom* showing. Same fix as before: measure the field and write its top into
+the variable, rather than nudging the 95px.
+
+### 2. Frosted glass
+
+`.sheet::before` — still the pseudo-element, for the reason section 23 gives —
+now carries an 85% colour plus `backdrop-filter: blur(14px)`, prefixed for
+Safari.
+
+**NO `opacity` PROPERTY, AND THAT IS THE POINT.** An element carrying both
+`opacity` and `backdrop-filter` is composited as one group: the blurred
+backdrop is blended back toward the unblurred original by whatever the opacity
+leaves over, which reads as a smeared half-frost rather than glass. The 85%
+lives in the colour instead, which composites identically and leaves the
+backdrop filter alone.
+
+The colour is the same two-stop gradient as before — the frame's `#f5b3c1`
+wash over `--bg` — with each stop **pre-composited** and then taken to 85%, so
+there is one translucent layer rather than two stacked ones. Nested
+`color-mix` keeps `--bg` the source rather than baking a derived hex into the
+stylesheet.
+
+**No stacking or transform quirk appeared.** The blur samples correctly through
+`.sheet`'s `translateY` and its `will-change: transform` — visible in both snap
+states, where the topic tiles and the search field behind the sheet render as a
+soft wash. Worth knowing anyway: `will-change: transform` is the first thing to
+suspect if the frost ever renders as flat colour on a device, since a backdrop
+root above the element clips what the blur can see. `backdrop-filter` also
+makes `::before` a containing block for absolutely positioned descendants — it
+has none, so nothing follows from that here.
+
+**Frame rate during a drag: no measurable cost.** Counted with a `rAF` loop
+across a 30-step scripted drag — **61.1 fps with the blur, 61.7 fps with it
+forced off**. That is headless Chrome with `--disable-gpu`, so the blur ran on
+the CPU at 500px: a worst case for the compositor and still not a real phone.
+**A device check is the one that counts**, because iOS composites this
+differently and a full-width blur under a moving transform is exactly the shape
+that can cost frames there.
+
+### 3. The lettering is 1.25x — and the name did not move relative to it
+
+`--script-scale: 1.25` on `.feed-greeting-script`, with all three lengths —
+width, height and `vertical-align` — derived from it, so the scale is one
+number to change. **A deliberate override, not the frame's value:** the frame
+sets the lettering at the same size as the name.
+
+Measured: **150.88 x 48.42**, exactly 1.25x the 120.708 x 38.745 source. Left
+edges still land on the same pixel, both at x=34.
+
+**Baseline-to-baseline went from 47.24px to 49.05px — and the visual gap
+between the two lines did not change at all.** Both measure **8.29px** from the
+bottom of the comma's ink to the top of the name's capitals. The extra baseline
+distance is exactly absorbed by the comma descending further, because both
+scale together. So the name neither crowds nor floats, and no leading needed
+touching.
+
+The cap height in that sum is measured, not assumed: 31.71px, read off the
+actual rendered face with canvas `actualBoundingBoxAscent` rather than taken
+from a published ratio.
+
+### Gesture table, re-run on the shipped CSS
+
+| Gesture | Result | Field fully covered |
+|---|---|---|
+| Slow drag up | expands, top 180 | yes |
+| Tap handle | toggles both ways | yes when open |
+| 60px fast flick down | collapses | — |
+| 80px slow drag down (under half travel) | stays open | yes |
+| 300px slow drag down | collapses | — |
+
+### Guessed
+
+**Nothing about the layout** — the greeting term, the overlap, the 1.25x scale,
+the ink gap and the cap height were all measured in the running app.
+
+The blur radius is a judgement call: 14px, the middle of the range asked for.
+The two unhosted design faces are unchanged and still outstanding — DM Sans for
+the name and post titles, Inter for the search placeholder (sections 19 and
+24).
+
+**Not verified:** still nothing on a real iPhone, and `env(safe-area-inset-top)`
+resolves to zero in headless Chrome, so the 95px greeting term and the 4px
+overlap both want a look on a notched device — as does the blur's cost under a
+real finger.
