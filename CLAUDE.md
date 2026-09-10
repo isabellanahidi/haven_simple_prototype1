@@ -858,7 +858,7 @@ The cascade on `handle_new_user` also removes its trigger on `auth.users`, which
 
 | Route | Screen | Behavior |
 |---|---|---|
-| `/` | Feed | Newest 50 posts. Each card: title, author display name + emoji, like count, comment count, relative timestamp. Tapping opens detail. |
+| `/` | Home | Greeting, search field, topic grid. The newest 50 posts live in a **bottom-sheet drawer**, not on the page — see section 22. Each card: title, author display name + emoji, like count, comment count, relative timestamp. Tapping opens detail. |
 | `/p/:id` | Post detail | Full post, like button, **threaded** comments to any depth with per-comment likes, reply composer. See section 21. |
 | `/new` | Create post | Title + body, character counters matching the DB constraints, submit → redirect to the new post. |
 | `/me` | Profile edit | Edit `display_name`, `bio`, `avatar_emoji`. Optionally list the user's own posts. |
@@ -2091,3 +2091,126 @@ were verified by rendering a mocked depth-8 tree against the *built*
 stylesheet. What that cannot exercise: the `comment_likes` `!inner` query, the
 optimistic insert at depth, the counter trigger round trip, and keyboard
 avoidance on a real keyboard.
+
+---
+
+## 22. Home rebuilt as frame + drawer (Sep 10)
+
+Figma frames **`Home-NDTab-closed`** (`node-id=179-3533`) and
+**`SwipeableDrawer`** (`node-id=192-804`), both on the **Final** page of
+`Haven01`. The second frame is the same drawer at its full snap point, not a
+separate screen.
+
+`/` is no longer "the feed". It is the greeting, a search field and a topic
+grid, with the discussion feed inside a drawer that peeks above the tab bar.
+
+**The data layer did not change at all.** Same `limit 50`, same
+`profiles!posts_author_id_fkey` embed, same separate fetch of my own likes into
+a `Set`, same `LikeButton` over `useLikeToggle`. The feed markup moved into a
+`FeedBody` sub-component and is otherwise byte-for-byte what it was.
+
+### The drawer
+
+`src/components/BottomSheet.tsx`. Pointer events plus a CSS transform, no new
+dependency.
+
+| | Where |
+|---|---|
+| peek | `translateY(calc(100% - var(--sheet-peek)))` — 80px: 24px handle strip + a 36px pill + 20px, per the frame |
+| full | `translateY(0)` — the sheet's height puts its top edge under the greeting, which is where frame `192:804` draws it |
+
+**The resting position is expressed in CSS, not JavaScript.** A percentage
+`translateY` resolves against the element's own height, so "all but the grab
+area" is a single expression that is correct on the first paint with nothing
+measured. JS overrides `transform` inline only while a pointer is down.
+
+**`--sheet-peek` is the only place the peek height is written.** `.sheet-grab`
+takes its height from it, and the drag measures that element
+(`sheet.offsetHeight - grab.offsetHeight`) rather than repeating the number as
+a TypeScript constant.
+
+**`touch-action: none` is on `.sheet-grab` and nowhere else.** On `.sheet` it
+would kill the list's own scrolling once expanded. Verified: with the sheet
+open, a touch-drag over `.sheet-body` scrolls it to 200px while `window.scrollY`
+stays 0 (`overscroll-behavior: contain`).
+
+**A tap on the handle would otherwise toggle twice.** Pointer capture retargets
+move and up but not the click, so a pointer release fires `endDrag`'s tap
+branch *and* the button's `onClick`. `endDrag` owns the pointer case — it is
+the only one that can tell a tap from a drag — and a `swallowClick` ref eats
+the click behind it. The `onClick` stays for keyboard and assistive-technology
+activation, which arrive with no pointer sequence in front of them.
+
+Snap on release: a flick faster than 0.4 px/ms wins over position, otherwise
+the nearer snap point. Verified by driving real touch events over CDP — a
+60px downward flick collapses, a slow 80px drag down (under half the travel)
+stays open, a slow 300px drag down collapses.
+
+Collapsed, `.sheet-body` is `inert`: it is translated off screen but still in
+the DOM, so without it the list stays tabbable.
+
+### What the frame shows that this app cannot do
+
+**The search field and the seven topic tiles are drawn and wired to nothing,
+deliberately.** Search is cut in section 3 and there is no topic column, table
+or filter anywhere in the schema — a topic is closer to the "communities /
+subreddits" section 3 also cuts. So the input is `disabled` (styled so the
+browser's grey disabled treatment never shows, and so it cannot raise the iOS
+keyboard over a field that would ignore the typing), and the tiles are `<li>`
+elements rather than buttons or links, with no `:active` state.
+
+**Connecting either one is adding a cut feature. Ask before doing it.**
+
+The frame's 12px placeholder is also under the 16px input floor. That is safe
+only because a disabled field cannot be focused, so Safari cannot zoom — the
+line in `.topic-search-input` says so, and enabling the field means putting
+`var(--fs-base)` back.
+
+### The illustrations
+
+One sprite sheet, `public/img/haven-topics.png`, committed from the frame's own
+image fill (the Figma asset URLs expire in about seven days). Each tile crops a
+different region of it exactly as Figma does: a fixed-aspect box with
+`overflow: hidden` holding an oversized `<img>` offset by percentages of that
+box. Every number is a percentage, not a pixel, so the art scales with the tile
+above 393px where the design's fixed widths would strand it.
+
+The pin is composed from the frame's two exported vectors (`pin-head.svg`,
+`pin-stem.svg`) at the frame's own offsets. **The exported vector is padded for
+its drop shadow**, so it is bigger than the glyph — 18.238 × 18.878 inside a
+26.858 box — and placing it at the *layer's* offset instead of the layer offset
+plus the component's 5.75px padding leaves the head floating clear of its own
+stem. That was caught only by rendering it at 3× and comparing against a
+screenshot of the tile node.
+
+### Read rather than copied, or guessed
+
+- **The pin is on one tile only.** Every tile has a pin instance, but on six of
+  the seven it is positioned outside the tile's bounds (e.g. `y=384` inside a
+  112px-tall tile) and clipped away. Only PCOS/PMOS has one placed at
+  `(137, 0)`, in the `select` variant. Read as: the frame renders exactly one
+  pinned tile. If the six strays were meant to be visible, this is what to
+  change.
+- **The full snap point is a fixed offset, not a measurement.** `--sheet-top`
+  is `safe-area-inset-top + --header-h + 115px` (the greeting's 91px plus the
+  frame's 24px gap), which reproduces the frame's `y=231` on a notched phone.
+  Signed out there is no greeting, so the sheet starts lower down the search
+  field — correct, but not something either frame draws.
+- **Frame `192:804` sets the expanded drawer to 95% opacity. Not applied** —
+  the sheet's own children would fade with it, and post cards showing the
+  topic tiles through them is worse than the 5% is worth.
+- **The illustrations are centred in their tiles.** The frame places each a few
+  px left of centre; centring holds as the tile widens and the difference is
+  invisible at 393px.
+- **The tiles' `#9f2042` and the pill's `#7b0d1e` are `--button` and
+  `--button-deep`**, already adopted in section 17. Nothing new was hardcoded.
+
+### Not verified
+
+**Still nothing on a real iPhone.** The drag, the snap thresholds and the inner
+scroll were driven with synthetic touch events in headless Chrome at 500px,
+which is not a finger and has no safe-area insets — so `--sheet-top`, the
+sheet's clearance over the home indicator, and how the 80px peek feels under a
+thumb are all still open. The expanded state was screenshotted against a static
+mock of the card markup using the built stylesheet, because the database has no
+posts.

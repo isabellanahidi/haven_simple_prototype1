@@ -6,11 +6,13 @@ import { greetingName } from '../lib/personalName';
 import { author, type FeedPost } from '../lib/types';
 import { Byline } from '../components/Byline';
 import { LikeButton } from '../components/LikeButton';
+import { BottomSheet } from '../components/BottomSheet';
+import { TopicGrid } from '../components/TopicGrid';
 import { EmptyState, ErrorState, SkeletonCards } from '../components/States';
 
 /**
- * Placed per the Figma frame: above the feed, left-aligned, immediately under
- * the header.
+ * Placed per the Figma frame: above the topic grid, left-aligned, immediately
+ * under the header.
  *
  * The name comes from the session context, which reads it off the session
  * user's metadata — there is no fetch here, and there must not be one. After a
@@ -24,13 +26,23 @@ function Greeting({ name }: { name: string | null }) {
   return (
     <h1 className="feed-greeting">
       {/* The design sets "Hello" in Pacifico and the rest in DM Sans Bold.
-          Neither font is loaded yet, so both currently render in the system
-          stack — the span marks the seam. See CLAUDE.md section 18. */}
+          Only Pacifico is loaded, so the name renders in the system stack —
+          the span marks the seam. See CLAUDE.md section 18. */}
       <span className="feed-greeting-script">Hello,</span> {greetingName(name)}!
     </h1>
   );
 }
 
+/**
+ * Per the Figma frames Home-NDTab-closed (179:3533) and SwipeableDrawer
+ * (192:804), the discussion feed is not the page — it lives inside a
+ * bottom-sheet drawer that peeks above the tab bar and drags up to full
+ * height. The page behind it is the greeting and the topic grid.
+ *
+ * The query below is unchanged from before the drawer landed: the same
+ * limit 50, the same posts -> profiles embed with its FK hint, the same
+ * separate fetch of my own likes into a Set.
+ */
 export default function Feed() {
   const { userId, personalName } = useSession();
   const [posts, setPosts] = useState<FeedPost[] | null>(null);
@@ -79,75 +91,77 @@ export default function Feed() {
     };
   }, [userId]);
 
-  // Signed out gets no greeting at all. userId is null while the session is
-  // still resolving too, so the greeting appears once rather than flickering
-  // through a wrong state.
-  const greeting = userId ? <Greeting name={personalName} /> : null;
+  return (
+    <div className="feed-page">
+      {/* Signed out gets no greeting at all. userId is null while the session
+          is still resolving too, so the greeting appears once rather than
+          flickering through a wrong state. */}
+      {userId && <Greeting name={personalName} />}
 
-  if (error)
-    return (
-      <>
-        {greeting}
-        <ErrorState title="Couldn't load the feed" message={error} />
-      </>
-    );
+      <TopicGrid />
 
-  if (posts === null)
-    return (
-      <>
-        {greeting}
-        <SkeletonCards />
-      </>
-    );
+      {/* "New Discussions" is the pill's label in both frames. */}
+      <BottomSheet title="New Discussions">
+        <FeedBody posts={posts} likedIds={likedIds} error={error} />
+      </BottomSheet>
+    </div>
+  );
+}
 
-  if (posts.length === 0) {
+function FeedBody({
+  posts,
+  likedIds,
+  error,
+}: {
+  posts: FeedPost[] | null;
+  likedIds: Set<string>;
+  error: string | null;
+}) {
+  if (error) return <ErrorState title="Couldn't load the feed" message={error} />;
+
+  if (posts === null) return <SkeletonCards />;
+
+  if (posts.length === 0)
     return (
-      <>
-        {greeting}
-        <EmptyState
-          title="No questions yet"
-          body="Be the first to ask something."
-          action={
-            <Link className="btn-primary" to="/new">
-              Ask a question
-            </Link>
-          }
-        />
-      </>
+      <EmptyState
+        title="No questions yet"
+        body="Be the first to ask something."
+        action={
+          <Link className="btn-primary" to="/new">
+            Ask a question
+          </Link>
+        }
+      />
     );
-  }
 
   return (
-    <>
-      {greeting}
-      <ul className="feed-list">
-        {posts.map((post) => (
-          // The like button is a real <button>, so it sits beside the card's
-          // <Link> rather than inside it — a button nested in an anchor is
-          // invalid, and tapping the heart would navigate.
-          <li className="post-card" key={post.id}>
-            <Link className="post-card-main" to={`/p/${post.id}`}>
-              <Byline author={author(post.profiles)} createdAt={post.created_at} lead />
-              <h2 className="post-title">{post.title}</h2>
-              {post.body && <p className="post-excerpt">{post.body}</p>}
+    <ul className="feed-list">
+      {posts.map((post) => (
+        // The like button is a real <button>, so it sits beside the card's
+        // <Link> rather than inside it — a button nested in an anchor is
+        // invalid, and tapping the heart would navigate.
+        <li className="post-card" key={post.id}>
+          <Link className="post-card-main" to={`/p/${post.id}`}>
+            <Byline author={author(post.profiles)} createdAt={post.created_at} lead />
+            <h2 className="post-title">{post.title}</h2>
+            {post.body && <p className="post-excerpt">{post.body}</p>}
+          </Link>
+          <div className="post-meta">
+            <LikeButton
+              postId={post.id}
+              initialCount={post.like_count}
+              initialLiked={likedIds.has(post.id)}
+            />
+            <Link className="stat" to={`/p/${post.id}`}>
+              <span className="stat-icon" aria-hidden="true">
+                💬
+              </span>
+              {post.comment_count}
+              <span className="sr-only">{post.comment_count === 1 ? ' reply' : ' replies'}</span>
             </Link>
-            <div className="post-meta">
-              <LikeButton
-                postId={post.id}
-                initialCount={post.like_count}
-                initialLiked={likedIds.has(post.id)}
-              />
-              <Link className="stat" to={`/p/${post.id}`}>
-                <span className="stat-icon" aria-hidden="true">
-                  💬
-                </span>
-                {post.comment_count}
-                <span className="sr-only">{post.comment_count === 1 ? ' reply' : ' replies'}</span>
-              </Link>
-            </div>
-          </li>
-        ))}
-      </ul>
-    </>
+          </div>
+        </li>
+      ))}
+    </ul>
   );
 }
