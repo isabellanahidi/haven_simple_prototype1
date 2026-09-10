@@ -1686,8 +1686,10 @@ error, so it does not pop in after the posts land.
 ~~**Skipping is not remembered.**~~ **Done Sep 7 — `personal_name_skipped`,
 see section 19.**
 
-**Pacifico is now self-hosted and applied to "Hello,"; DM Sans is still not
-loaded.** See section 19. The name half still renders in the system stack.
+~~**Pacifico is now self-hosted and applied to "Hello,"; DM Sans is still not
+loaded.**~~ **Superseded Sep 10 — "Hello," is outlined artwork and Pacifico is
+gone entirely. See section 23.** The name half still renders in the system
+stack, and DM Sans is still not loaded.
 
 ~~**Copy note:** the frame reads "Hello, Jane!" with an exclamation mark.~~
 **Resolved Sep 7 — both states now carry it. See section 19.**
@@ -1763,7 +1765,14 @@ They are told apart by their text colour, not their background.
 "Hello, Jane!" and "Hello, Love!" — the exclamation is in both states now,
 matching the frame.
 
-### 5. Pacifico, self-hosted
+### 5. Pacifico, self-hosted — REMOVED Sep 10
+
+**Everything in this subsection is history.** "Hello," is now outlined
+artwork, the webfont and its preload are deleted, and the two traps below no
+longer apply to anything in the repo. Kept because they are the reason the
+outlines have the shape they do, and because both are easy to walk back into.
+See section 23.
+
 
 `public/fonts/pacifico-latin-400.woff2`, with `Pacifico-OFL.txt` beside it.
 **Latin subset only** — the greeting is "Hello," — declared with a matching
@@ -2190,15 +2199,16 @@ screenshot of the tile node.
   112px-tall tile) and clipped away. Only PCOS/PMOS has one placed at
   `(137, 0)`, in the `select` variant. Read as: the frame renders exactly one
   pinned tile. If the six strays were meant to be visible, this is what to
-  change.
+  change. **Since Sep 10 the pin is driven by `ACTIVE_TOPIC`, not a per-topic
+  flag — see section 23.**
 - **The full snap point is a fixed offset, not a measurement.** `--sheet-top`
   is `safe-area-inset-top + --header-h + 115px` (the greeting's 91px plus the
   frame's 24px gap), which reproduces the frame's `y=231` on a notched phone.
   Signed out there is no greeting, so the sheet starts lower down the search
   field — correct, but not something either frame draws.
-- **Frame `192:804` sets the expanded drawer to 95% opacity. Not applied** —
-  the sheet's own children would fade with it, and post cards showing the
-  topic tiles through them is worse than the 5% is worth.
+- ~~**Frame `192:804` sets the expanded drawer to 95% opacity. Not applied.**~~
+  **Superseded Sep 10 — the surface is now 40%, and the children do not fade.
+  See section 23.**
 - **The illustrations are centred in their tiles.** The frame places each a few
   px left of centre; centring holds as the tile widens and the difference is
   invisible at 393px.
@@ -2214,3 +2224,130 @@ sheet's clearance over the home indicator, and how the 80px peek feels under a
 thumb are all still open. The expanded state was screenshotted against a static
 mock of the card markup using the built stylesheet, because the database has no
 posts.
+
+---
+
+## 23. Three home-page edits (Sep 10)
+
+CSS and markup only. No data, no schema, no query.
+
+### 1. The drawer surface is 40% — and `opacity` on the container was wrong
+
+**`opacity: 0.4` on `.sheet` fades the post cards with it.** Opacity applies to
+the whole subtree, so the titles, the excerpts and the hearts would all go to
+40% and stop being readable. That is the thing the request explicitly ruled
+out, and it is the obvious implementation, so it is worth naming.
+
+The surface is lifted onto **`.sheet::before`**, which carries the opacity
+alone. The sheet's real children paint over it at full strength.
+
+Three details that are load-bearing:
+
+- **`position: absolute`, which is also what keeps it out of the flex flow.**
+  `.sheet` is a flex column; a static `::before` would become a flex item and
+  push the grab area down the sheet.
+- **`z-index: -1`** puts it behind the children. It cannot escape the sheet,
+  which is its own stacking context already (it has both a transform and a
+  z-index).
+- **Opacity on the layer, not a translucent colour.** The surface is two
+  layers — the frame's pale `#f5b3c1` wash over `--bg`. Fading each one to 40%
+  separately composites to about 50%, because `1 - (1-0.16)(1-0.4) ≈ 0.496`.
+  Fading the composite is the only way the number means what it says.
+
+The box-shadow stays at full strength: with the surface mostly transparent, it
+is the only thing left drawing the sheet's edge against the page.
+
+Applies to both snap points, because it is on `.sheet` and neither state
+touches it.
+
+### 2. Topic tiles: greyscale except one
+
+`filter: grayscale(1); opacity: 0.6` on `.topic-tile:not(.topic-tile-active)`.
+On the tile itself, so the brand fill, the white label, the illustration and
+the shadow recede together rather than leaving a grey card with black text.
+
+**`ACTIVE_TOPIC` in `TopicGrid.tsx` is the only place the active tile is
+named.** It drives both the class and the pin.
+
+**The pin's own per-topic flag is gone, folded into that constant.** The frame
+agrees the pinned tile and the highlighted tile are the same one, and two flags
+that must always match are one flag with a way to go wrong. If they ever have
+to diverge, that is the line to split.
+
+Nothing here is interactive — the tiles are still `<li>` elements wired to
+nothing, per section 22. This is a rendered state, not a selection.
+
+### 3. "Hello," is outlined artwork; the name is still live text
+
+Extracted from the design's own outlined greeting, which arrived as a single
+`<path>` holding both lines. Split by subpath: eleven subpaths for "Hello,"
+(H, e, l, l, o and the comma, each with its counter) all sitting at y ≤ 38.7,
+and eight for "Jane" at y ≥ 45.5. The "Jane" half is discarded — **the name
+must stay live text**, because it comes from `personal_name` in auth metadata
+and is different for every person. Section 18's hard rule is untouched: this
+changes how the greeting is drawn, not where the name comes from.
+
+It lives inline in `src/components/HelloLettering.tsx` rather than as a file
+under `public/`, for one reason: `fill="currentColor"`. An `<img>` cannot
+inherit `--text-body`, and hardcoding `#3D1307` would put a second copy of a
+token in the tree to drift.
+
+**Two numbers, both derived from the source and neither guessed:**
+
+- **1 unit = 1 CSS px at a 45px type size.** Confirmed from the source itself:
+  the two baselines sit 45.55 units apart, matching the frame's 46px leading,
+  and the cap height of the discarded "J" is 31.5 units — 0.7 × 45, which is
+  DM Sans's cap-height ratio. So the lettering is sized in `em` off
+  `--fs-greeting` and both halves scale together.
+- **The baseline is at y = 31.5**, where the flat bottoms of H, l and o all
+  land. The viewBox runs to 38.745 because the comma descends, so 7.245px of
+  the box hangs below the baseline.
+
+**That descent is why `vertical-align` is not `baseline`.** An inline SVG's
+baseline is its bottom margin edge, so left alone the lettering rides 7.245px
+high against the name. `.feed-greeting-script` sets
+`vertical-align: -0.161em`, which is that descent over the same 45px.
+**Measured in the running app: the art's baseline and the text baseline are
+0.01px apart.** If the viewBox is ever re-cropped, this number moves with it.
+
+Accessibility: the SVG is `aria-hidden` and the word is supplied as `sr-only`
+text, so the heading is still announced as the single string "Hello, Jane!".
+
+### Pacifico is deleted
+
+The greeting was its only use. Gone: the `@font-face` block, the
+`.feed-greeting-script` font stack, the `<link rel="preload">` in `index.html`,
+and `public/fonts/` (the woff2 and its OFL licence). A preloaded font that
+nothing renders is a fetch on every load plus a console warning, so leaving it
+was not neutral. **Those are tracked files, so `git restore` brings them back.**
+
+The source SVG is deleted too, as asked: `public/img/Hello, Jane!.svg` — its
+"Hello," half is now in `HelloLettering.tsx` and its "Jane" half was never
+wanted. **That one was never committed, so it is not recoverable.** If the
+discarded "Jane" outlines are ever wanted, they have to be re-exported from
+Figma.
+
+**Section 19's Pacifico subsection is now history**, including its two traps
+(the latin subset is the *last* `@font-face` block Google Fonts returns, not
+the first; `crossorigin` is required on a same-origin font preload). They are
+kept there because they are easy to walk back into.
+
+### What was guessed
+
+**The name's typeface, and only that.** The frame sets it in **DM Sans Bold**,
+which this project still does not load — section 19 left that pass outstanding
+and this change does not do it. So the name renders in the system stack at the
+frame's size (45px), weight (700) and colour (`--text-body`, verified as
+`rgb(61, 19, 7)` on both halves at runtime). Cap heights are close — SF Pro is
+about 0.714, DM Sans 0.7, so roughly 0.6px apart at 45px — but the letterforms
+are not DM Sans and the greeting will change shape when that pass lands.
+
+**Alignment was measured, not guessed.** Baseline drift 0.01px, checked by
+reading the SVG's rect against a zero-height inline-block probe dropped into
+the name.
+
+**Not verified:** still nothing on a real iPhone, and the expanded drawer was
+screenshotted against a static mock of the card markup because the database has
+no posts. Worth a look on device: at 40% the topic tiles read through the gaps
+between cards, which is busier than the frame's 95% and is the kind of thing
+that only settles on a screen.

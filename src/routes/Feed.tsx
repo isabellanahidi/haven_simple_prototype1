@@ -7,6 +7,7 @@ import { author, type FeedPost } from '../lib/types';
 import { Byline } from '../components/Byline';
 import { LikeButton } from '../components/LikeButton';
 import { BottomSheet } from '../components/BottomSheet';
+import { HelloLettering } from '../components/HelloLettering';
 import { TopicGrid } from '../components/TopicGrid';
 import { EmptyState, ErrorState, SkeletonCards } from '../components/States';
 
@@ -25,10 +26,13 @@ import { EmptyState, ErrorState, SkeletonCards } from '../components/States';
 function Greeting({ name }: { name: string | null }) {
   return (
     <h1 className="feed-greeting">
-      {/* The design sets "Hello" in Pacifico and the rest in DM Sans Bold.
-          Only Pacifico is loaded, so the name renders in the system stack —
-          the span marks the seam. See CLAUDE.md section 18. */}
-      <span className="feed-greeting-script">Hello,</span> {greetingName(name)}!
+      {/* "Hello," is the design's own lettering, drawn as outlines. The name is
+          live text beside it on the same baseline — it comes from user
+          metadata, so it can never be part of the artwork. The design sets it
+          in DM Sans Bold, which is still not loaded, so it renders in the
+          system stack. See CLAUDE.md section 23. */}
+      <span className="sr-only">Hello, </span>
+      <HelloLettering /> <span className="feed-greeting-name">{greetingName(name)}!</span>
     </h1>
   );
 }

@@ -1,22 +1,3 @@
-/* Self-hosted, not linked from Google Fonts. This is a PWA: the home screen
-   must render without a third-party request, and a runtime link to
-   fonts.gstatic.com would put someone else's uptime in front of the greeting.
-   The file is the latin subset only (the greeting is "Hello,"), OFL-licensed,
-   with the licence alongside it in public/fonts/.
-
-   swap, so the greeting paints immediately in the fallback and upgrades when
-   the font lands rather than hiding behind an invisible-text period. */
-@font-face {
-  font-family: 'Pacifico';
-  font-style: normal;
-  font-weight: 400;
-  font-display: swap;
-  src: url('/fonts/pacifico-latin-400.woff2') format('woff2');
-  unicode-range:
-    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
-    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
-}
-
 /* ============================================================
    Global stylesheet — the only one in the project.
    Plain CSS, CSS variables for color and spacing.
@@ -713,14 +694,21 @@ a {
    over 46px leading in --text-body. The frame's gap to the content below it is
    24px, which is --sp-5.
 
-   "Hello," is Pacifico, self-hosted. The name deliberately is NOT: the frame
-   sets it in DM Sans Bold, and DM Sans is the design's heading face everywhere
-   — post titles included — so adopting it is a typography pass of its own
-   rather than a side effect of this one. The name stays in the system
-   stack until then. */
+   "Hello," is the design's own lettering, drawn as outlines by
+   HelloLettering.tsx — the Pacifico webfont it replaced is gone, along with
+   its preload. The NAME is still live text, because it comes from user
+   metadata. The frame sets it in DM Sans Bold; DM Sans is the design's heading
+   face everywhere, post titles included, so adopting it is a typography pass
+   of its own rather than a side effect of this one. Until then it renders in
+   the system stack, which is close on cap height and wrong on shape. */
 .feed-greeting {
+  /* The type size the whole greeting is built on. The lettering's viewBox is
+     drawn 1 unit = 1px against exactly this size, so both halves scale
+     together off this one number. */
+  --fs-greeting: 45px;
+
   margin: 0 0 var(--sp-5);
-  font-size: 45px;
+  font-size: var(--fs-greeting);
   line-height: 46px;
   font-weight: 700;
   letter-spacing: -0.01em;
@@ -731,19 +719,27 @@ a {
   overflow-wrap: anywhere;
 }
 
+/* The outlined "Hello,".
+
+   Sized in em, so it follows --fs-greeting: the source art is 120.708 x 38.745
+   units at a 45px type size, which is 2.6824em x 0.861em.
+
+   vertical-align is the whole trick. An inline SVG's baseline is its bottom
+   edge, and this box runs 7.245px BELOW the lettering's own baseline because
+   the comma descends. Without the shift the lettering would ride 7.245px high
+   against the name. -0.161em is that descent expressed against the same type
+   size. If the viewBox is ever re-cropped, this number moves with it. */
 .feed-greeting-script {
-  /* The fallback is the body stack, so a failed or slow font swaps rather than
-     falling back to a serif default that looks nothing like the design. */
-  font-family:
-    'Pacifico',
-    -apple-system,
-    BlinkMacSystemFont,
-    system-ui,
-    sans-serif;
-  font-weight: 400;
-  /* Pacifico's ascenders and descenders run tall; without a little extra room
-     the cap of the H clips against the header above it. */
-  line-height: 1.15;
+  display: inline-block;
+  width: 2.6824em;
+  height: 0.861em;
+  vertical-align: -0.161em;
+}
+
+/* Its own element only so the seam between artwork and live text is visible in
+   the markup. It inherits size, weight and colour from .feed-greeting. */
+.feed-greeting-name {
+  font-weight: 700;
 }
 
 /* ---------- feed page: search + topic grid ----------
@@ -822,6 +818,17 @@ a {
   background: var(--button);
   box-shadow: 0 4px 4px rgb(0 0 0 / 0.25);
   overflow: hidden;
+}
+
+/* Every tile but the active one is drained of colour. One selector, driven by
+   the single ACTIVE_TOPIC constant in TopicGrid.tsx.
+
+   filter and opacity are on the tile itself, so the brand fill, the white
+   label, the illustration and the shadow all fade together — the whole card
+   recedes rather than turning into a grey card with black text on it. */
+.topic-tile:not(.topic-tile-active) {
+  filter: grayscale(1);
+  opacity: 0.6;
 }
 
 .topic-name {
@@ -933,10 +940,9 @@ a {
   display: flex;
   flex-direction: column;
   border-radius: 24px 24px 0 0;
-  /* The frame's gradient is a pale wash of #f5b3c1 over the page. */
-  background:
-    linear-gradient(to bottom, rgb(245 179 193 / 0.08), rgb(245 179 193 / 0.16)),
-    var(--bg);
+  /* No background here — it is painted by ::before at 40%. The shadow stays at
+     full strength: it is what still reads the sheet's edge against the page
+     once the surface itself is mostly transparent. */
   box-shadow:
     0 10px 15px var(--shadow),
     0 4px 6px var(--shadow);
@@ -948,6 +954,35 @@ a {
   transform: translateY(calc(100% - var(--sheet-peek)));
   transition: transform 280ms cubic-bezier(0.2, 0.8, 0.2, 1);
   will-change: transform;
+}
+
+/* THE SURFACE, AND THE ONLY THING THAT IS TRANSLUCENT.
+
+   `opacity: 0.4` on .sheet itself would take the post cards, the titles and
+   the hearts down with it — the whole subtree fades, and the text stops being
+   readable. So the background is lifted onto a pseudo-element that carries the
+   opacity alone, and the sheet's real children paint over it at full strength.
+
+   opacity on this layer rather than a translucent colour because the surface
+   is two layers — the frame's pale #f5b3c1 wash over --bg — and fading each
+   one separately composites to about 50%, not 40%. Fading the composite is the
+   only way the number means what it says.
+
+   Absolutely positioned, which is also what keeps it out of the flex flow: a
+   static ::before in a flex container would become a flex item and push the
+   grab area down. z-index -1 puts it behind the children and cannot escape
+   the sheet, which is its own stacking context (transform + z-index). */
+.sheet::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  opacity: 0.4;
+  background:
+    linear-gradient(to bottom, rgb(245 179 193 / 0.08), rgb(245 179 193 / 0.16)),
+    var(--bg);
+  pointer-events: none;
 }
 
 .sheet-expanded {

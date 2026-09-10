@@ -43,9 +43,21 @@ type Topic = {
   aspect: string;
   /** The crop: the <img>'s size and offset, as percentages of that box. */
   crop: { w: string; h: string; l: string; t: string };
-  /** The frame draws its pin on exactly one tile. See the note below. */
-  pinned?: boolean;
 };
+
+/**
+ * THE ACTIVE TILE, AND THE ONLY PLACE IT IS NAMED.
+ *
+ * One topic renders in full colour and carries the pin; every other tile is
+ * greyscale at 60%. Both facts hang off this one constant and the single
+ * `topic-tile-active` class it sets, so moving the state to another topic —
+ * or to something a person actually chose — is one edit here.
+ *
+ * The pin used to be its own per-topic flag. It is folded in because the frame
+ * agrees the two are the same tile, and two flags that must always match are
+ * one flag with a way to go wrong.
+ */
+const ACTIVE_TOPIC = 'PCOS/PMOS';
 
 /**
  * The pin is a real component in the file with Default and select variants,
@@ -65,7 +77,6 @@ const TOPICS: Topic[] = [
     height: '46.43%',
     aspect: '94 / 52',
     crop: { w: '261.22%', h: '770.64%', l: '-32.65%', t: '-86.24%' },
-    pinned: true,
   },
   {
     name: 'Endometriosis',
@@ -137,36 +148,39 @@ export function TopicGrid() {
       </div>
 
       <ul className="topic-grid">
-        {TOPICS.map((topic) => (
-          <li className="topic-tile" key={topic.name}>
-            <span className="topic-name">{topic.name}</span>
-            <span
-              className="topic-ill"
-              aria-hidden="true"
-              style={
-                {
-                  '--ill-top': topic.top,
-                  '--ill-h': topic.height,
-                  '--ill-ar': topic.aspect,
-                } as CSSProperties
-              }
-            >
-              <img
-                src={SPRITE}
-                alt=""
+        {TOPICS.map((topic) => {
+          const active = topic.name === ACTIVE_TOPIC;
+          return (
+            <li className={`topic-tile${active ? ' topic-tile-active' : ''}`} key={topic.name}>
+              <span className="topic-name">{topic.name}</span>
+              <span
+                className="topic-ill"
+                aria-hidden="true"
                 style={
                   {
-                    '--crop-w': topic.crop.w,
-                    '--crop-h': topic.crop.h,
-                    '--crop-l': topic.crop.l,
-                    '--crop-t': topic.crop.t,
+                    '--ill-top': topic.top,
+                    '--ill-h': topic.height,
+                    '--ill-ar': topic.aspect,
                   } as CSSProperties
                 }
-              />
-            </span>
-            {topic.pinned && <Pin />}
-          </li>
-        ))}
+              >
+                <img
+                  src={SPRITE}
+                  alt=""
+                  style={
+                    {
+                      '--crop-w': topic.crop.w,
+                      '--crop-h': topic.crop.h,
+                      '--crop-l': topic.crop.l,
+                      '--crop-t': topic.crop.t,
+                    } as CSSProperties
+                  }
+                />
+              </span>
+              {active && <Pin />}
+            </li>
+          );
+        })}
       </ul>
     </>
   );
