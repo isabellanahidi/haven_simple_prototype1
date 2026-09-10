@@ -2207,7 +2207,7 @@ screenshot of the tile node.
   Signed out there is no greeting, so the sheet starts lower down the search
   field — correct, but not something either frame draws.
 - ~~**Frame `192:804` sets the expanded drawer to 95% opacity. Not applied.**~~
-  **Superseded Sep 10 — the surface is now 40%, and the children do not fade.
+  **Superseded Sep 10 — the surface is now 75%, and the children do not fade.
   See section 23.**
 - **The illustrations are centred in their tiles.** The frame places each a few
   px left of centre; centring holds as the tile widens and the difference is
@@ -2231,12 +2231,17 @@ posts.
 
 CSS and markup only. No data, no schema, no query.
 
-### 1. The drawer surface is 40% — and `opacity` on the container was wrong
+### 1. The drawer surface is 75% — and `opacity` on the container was wrong
 
-**`opacity: 0.4` on `.sheet` fades the post cards with it.** Opacity applies to
-the whole subtree, so the titles, the excerpts and the hearts would all go to
-40% and stop being readable. That is the thing the request explicitly ruled
-out, and it is the obvious implementation, so it is worth naming.
+**`opacity` on `.sheet` fades the post cards with it.** Opacity applies to the
+whole subtree, so the titles, the excerpts and the hearts would go translucent
+along with the surface and read soft against whatever shows through. That is
+the thing the request explicitly ruled out, and it is the obvious
+implementation, so it is worth naming.
+
+The value has moved once already — 40% on the first pass, **75% since** — which
+is exactly why it lives in one declaration and nothing else in the sheet
+depends on it.
 
 The surface is lifted onto **`.sheet::before`**, which carries the opacity
 alone. The sheet's real children paint over it at full strength.
@@ -2250,8 +2255,8 @@ Three details that are load-bearing:
   which is its own stacking context already (it has both a transform and a
   z-index).
 - **Opacity on the layer, not a translucent colour.** The surface is two
-  layers — the frame's pale `#f5b3c1` wash over `--bg`. Fading each one to 40%
-  separately composites to about 50%, because `1 - (1-0.16)(1-0.4) ≈ 0.496`.
+  layers — the frame's pale `#f5b3c1` wash over `--bg`. Fading each one to 75%
+  separately composites to about 79%, because `1 - (1-0.16)(1-0.75) = 0.79`.
   Fading the composite is the only way the number means what it says.
 
 The box-shadow stays at full strength: with the surface mostly transparent, it
@@ -2348,6 +2353,6 @@ the name.
 
 **Not verified:** still nothing on a real iPhone, and the expanded drawer was
 screenshotted against a static mock of the card markup because the database has
-no posts. Worth a look on device: at 40% the topic tiles read through the gaps
-between cards, which is busier than the frame's 95% and is the kind of thing
-that only settles on a screen.
+no posts. Worth a look on device: the topic tiles still read faintly through
+the gaps between cards, which at 75% is much closer to the frame's 95% than the
+first pass's 40% was, but is the kind of thing that only settles on a screen.

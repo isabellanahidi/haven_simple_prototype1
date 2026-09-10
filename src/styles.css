@@ -940,7 +940,7 @@ a {
   display: flex;
   flex-direction: column;
   border-radius: 24px 24px 0 0;
-  /* No background here — it is painted by ::before at 40%. The shadow stays at
+  /* No background here — it is painted by ::before at 75%. The shadow stays at
      full strength: it is what still reads the sheet's edge against the page
      once the surface itself is mostly transparent. */
   box-shadow:
@@ -958,14 +958,14 @@ a {
 
 /* THE SURFACE, AND THE ONLY THING THAT IS TRANSLUCENT.
 
-   `opacity: 0.4` on .sheet itself would take the post cards, the titles and
-   the hearts down with it — the whole subtree fades, and the text stops being
-   readable. So the background is lifted onto a pseudo-element that carries the
+   `opacity: 0.75` on .sheet itself would take the post cards, the titles and
+   the hearts down with it — the whole subtree fades, and the text goes soft
+   against the page showing through it. So the background is lifted onto a pseudo-element that carries the
    opacity alone, and the sheet's real children paint over it at full strength.
 
    opacity on this layer rather than a translucent colour because the surface
    is two layers — the frame's pale #f5b3c1 wash over --bg — and fading each
-   one separately composites to about 50%, not 40%. Fading the composite is the
+   one separately composites to about 79%, not 75%. Fading the composite is the
    only way the number means what it says.
 
    Absolutely positioned, which is also what keeps it out of the flex flow: a
@@ -978,7 +978,7 @@ a {
   inset: 0;
   z-index: -1;
   border-radius: inherit;
-  opacity: 0.4;
+  opacity: 0.75;
   background:
     linear-gradient(to bottom, rgb(245 179 193 / 0.08), rgb(245 179 193 / 0.16)),
     var(--bg);
