@@ -736,9 +736,21 @@ a {
   vertical-align: -0.161em;
 }
 
-/* Its own element only so the seam between artwork and live text is visible in
-   the markup. It inherits size, weight and colour from .feed-greeting. */
+/* The name sits on its own line directly under the lettering, left-aligned
+   with it, which is how the frame breaks it — "Hello," over "Jane!".
+
+   display: block is the whole mechanism. The lettering above it is inline, so
+   the browser wraps that in an anonymous block of its own and both lines
+   inherit .feed-greeting's 46px line-height — which is the frame's leading,
+   and matches the 45.55 units measured between the two baselines in the source
+   artwork. Nothing here sets a margin: the leading is the spacing.
+
+   Left edges line up because the lettering's viewBox is cropped tight
+   (min-x = 1.755, the leftmost ink of the H), so its box edge IS its ink edge.
+   Only the name's own left side bearing separates them, well under a pixel at
+   this size. */
 .feed-greeting-name {
+  display: block;
   font-weight: 700;
 }
 
@@ -784,17 +796,40 @@ a {
   border: none;
   border-radius: 999px;
   background: var(--surface);
-  /* The frame sets 12px. That is under the 16px floor, but the floor exists to
-     stop Safari zooming on focus, and a disabled field cannot be focused. If
-     this is ever enabled, this line has to go back to var(--fs-base). */
+  /* Read off the frame's own text node (179:3541), which Figma reports as the
+     "Caption" style: Inter Regular, 12/16, tracking -0.150390625.
+
+     INTER IS NOT SELF-HOSTED IN THIS PROJECT, and this pass did not add it —
+     see CLAUDE.md section 24. It is named first so the declaration says what
+     the design asks for and so self-hosting it later is one @font-face and
+     nothing else; until then every device falls through to the system stack,
+     which is a different face at the same metrics.
+
+     12px is under the 16px floor. The floor exists to stop Safari zooming on
+     focus, and a disabled field cannot be focused. If this is ever enabled,
+     this line has to go back to var(--fs-base). */
+  font-family:
+    'Inter',
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    system-ui,
+    sans-serif;
   font-size: 12px;
+  font-weight: 400;
+  /* The frame centres its text in a 43.96px field. An input centres its single
+     line in the content box on its own, so this states the frame's leading for
+     fidelity and lets the browser do the centring. */
   line-height: 16px;
-  letter-spacing: -0.15px;
+  /* Not rounded to -0.15px: this is the frame's exact tracking. */
+  letter-spacing: -0.1504px;
   color: var(--text-body);
   opacity: 1; /* Safari fades disabled inputs; the frame does not. */
   -webkit-text-fill-color: var(--text-body);
 }
 
+/* rgba(61, 19, 7, 0.5) in the frame — --text-body at 50%. opacity: 1 because
+   Firefox dims placeholders by default, which would compound the 50%. */
 .topic-search-input::placeholder {
   color: color-mix(in srgb, var(--text-body) 50%, transparent);
   opacity: 1;
@@ -926,12 +961,35 @@ a {
   max-width: var(--content-max);
 
   /* Full height. --sheet-top is the distance from the top of the viewport to
-     the sheet's top edge when expanded: the header band plus the greeting
-     (91px) plus the frame's 24px gap, which lands the sheet under the
-     greeting exactly as frame 192:804 shows. Signed out there is no greeting,
-     so the sheet simply starts lower down the search field — still correct,
-     just not something either frame draws. */
-  --sheet-top: calc(env(safe-area-inset-top) + var(--header-h) + 115px);
+     the sheet's top edge when expanded.
+
+     IT CLEARS THE SEARCH FIELD, WHICH THE FRAME DOES NOT. Frame 192:804 puts
+     the drawer's top edge at y=231, exactly the search field's own top, so
+     taken literally the field disappears the moment the sheet opens. This is
+     a deliberate departure: the field stays visible in both snap states.
+
+     Built from the stack above it rather than as one number, so the terms that
+     already have tokens follow them:
+
+       --sp-3   .app-main's top padding
+       93px     the greeting — two 46px lines, the first a shade taller
+                because the comma hangs below the baseline. The one hardcoded
+                term; see the note on stability below.
+       --sp-5   .feed-greeting's bottom margin
+       --tap    the search field's height
+       --sp-3   the gap left under the field
+
+     A FIXED OFFSET, NOT A MEASUREMENT, and it is worth knowing where that
+     holds. Signed out there is no greeting at all, so the field sits 117px
+     higher and the sheet merely starts lower than it needs to — never over the
+     field. The case this cannot cover is a personal name long enough to wrap
+     to a second line, which pushes the field down under the sheet's full
+     position. If that starts happening, the fix is to measure the field's
+     bottom and write it into this variable, not to grow the 93px. */
+  --sheet-top: calc(
+    env(safe-area-inset-top) + var(--header-h) + var(--sp-3) + 93px + var(--sp-5) +
+      var(--tap) + var(--sp-3)
+  );
   height: calc(
     100dvh - var(--sheet-top) - var(--tabbar-h) - env(safe-area-inset-bottom)
   );

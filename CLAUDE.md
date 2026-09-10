@@ -2201,11 +2201,11 @@ screenshot of the tile node.
   pinned tile. If the six strays were meant to be visible, this is what to
   change. **Since Sep 10 the pin is driven by `ACTIVE_TOPIC`, not a per-topic
   flag — see section 23.**
-- **The full snap point is a fixed offset, not a measurement.** `--sheet-top`
-  is `safe-area-inset-top + --header-h + 115px` (the greeting's 91px plus the
-  frame's 24px gap), which reproduces the frame's `y=231` on a notched phone.
-  Signed out there is no greeting, so the sheet starts lower down the search
-  field — correct, but not something either frame draws.
+- ~~**The full snap point is a fixed offset, not a measurement.** `--sheet-top`
+  is `safe-area-inset-top + --header-h + 115px`, which reproduces the frame's
+  `y=231` on a notched phone.~~ **Superseded Sep 10 — still a fixed offset, but
+  a larger one, because the frame's `y=231` covers the search field. See
+  section 24.**
 - ~~**Frame `192:804` sets the expanded drawer to 95% opacity. Not applied.**~~
   **Superseded Sep 10 — the surface is now 75%, and the children do not fade.
   See section 23.**
@@ -2310,10 +2310,14 @@ token in the tree to drift.
 
 **That descent is why `vertical-align` is not `baseline`.** An inline SVG's
 baseline is its bottom margin edge, so left alone the lettering rides 7.245px
-high against the name. `.feed-greeting-script` sets
+high against text on the same line. `.feed-greeting-script` sets
 `vertical-align: -0.161em`, which is that descent over the same 45px.
-**Measured in the running app: the art's baseline and the text baseline are
-0.01px apart.** If the viewBox is ever re-cropped, this number moves with it.
+
+~~**Measured in the running app: the art's baseline and the text baseline are
+0.01px apart.**~~ **Superseded Sep 10 — the name moved to its own line, so
+they no longer share a baseline. See section 24.** The `vertical-align` still
+earns its keep: it is what seats the lettering on its own line's baseline, so
+the two lines are 46px apart rather than the lettering floating in its box.
 
 Accessibility: the SVG is `aria-hidden` and the word is supplied as `sr-only`
 text, so the heading is still announced as the single string "Hello, Jane!".
@@ -2356,3 +2360,103 @@ screenshotted against a static mock of the card markup because the database has
 no posts. Worth a look on device: the topic tiles still read faintly through
 the gaps between cards, which at 75% is much closer to the frame's 95% than the
 first pass's 40% was, but is the kind of thing that only settles on a screen.
+
+---
+
+## 24. Greeting stacked, snap point lowered, placeholder matched (Sep 10)
+
+CSS and markup. No data, no schema, no query.
+
+### 1. The name is on its own line
+
+`Hello,` over `Jane!`, left-aligned — which is how the frame breaks it, and
+how the source artwork was drawn before its second line was discarded.
+
+**`display: block` on `.feed-greeting-name` is the whole mechanism.** The
+lettering above it stays inline, so the browser wraps that in an anonymous
+block of its own and both lines take `.feed-greeting`'s 46px line-height. No
+margin is involved: the leading is the spacing, which is what keeps the two
+lines behaving like the two lines of a paragraph if the name ever wraps.
+
+**The left edges land on the same pixel — measured, both at x=34.** That is
+not luck: the lettering's viewBox is cropped tight to the ink (`min-x =
+1.755`, the left edge of the H), so the SVG's box edge *is* its ink edge. Only
+the name's own left side bearing separates them, well under a pixel at 45px.
+
+**Baseline-to-baseline came out at 47.24px, not 46.** The first line box is
+taller than the strut because the SVG hangs 7.2px below its baseline for the
+comma and the strut's descent does not reach that far. Left alone: it is 1.7px
+off the source artwork's own 45.55, invisible at this size, and chasing it
+would mean a negative margin tuned to the metrics of a font that is not even
+the design's face yet. **When the DM Sans pass lands, re-measure this rather
+than assuming it still holds.**
+
+### 2. The full snap point clears the search field
+
+**The frame puts the drawer's top edge at `y=231`, which is exactly the search
+field's own top — so the design covers the field the moment the sheet opens.**
+That is now a deliberate departure: the field stays visible in both snap
+states.
+
+`--sheet-top` is still a fixed offset, not a runtime measurement, and it is now
+built from the stack above it so the terms that have tokens follow them:
+
+| Term | Why |
+|---|---|
+| `env(safe-area-inset-top)` | the notch |
+| `var(--header-h)` | 53px |
+| `var(--sp-3)` | `.app-main`'s top padding |
+| **93px** | the greeting — two 46px lines, the first a shade taller for the comma's descent. The one hardcoded term. |
+| `var(--sp-5)` | `.feed-greeting`'s bottom margin |
+| `var(--tap)` | the search field, 44px |
+| `var(--sp-3)` | the gap left under the field |
+
+**Verified in the running app at both snap points:** peek leaves the field
+394.77px clear, full leaves it **11.77px** clear. Neither covers it.
+
+**Where the fixed offset holds, and where it does not** — the position is not
+fully stable, so this is the trade rather than a claim that it is:
+
+- **Signed out there is no greeting**, so the field sits 117px higher. The
+  sheet simply starts lower than it needs to and the field is never covered.
+  Safe direction.
+- **A personal name long enough to wrap to a second line** pushes the field
+  down under the sheet's full position. This is the one case a fixed offset
+  cannot cover. The fix is to measure the field's bottom and write it into the
+  variable — **not** to grow the 93px, which would only move the failure.
+
+### 3. The search placeholder, read off the frame
+
+Node `179:3541` in `Home-NDTab-closed`, which Figma reports under its
+**Caption** style.
+
+| | Frame | Now |
+|---|---|---|
+| String | `Search for topics...` | unchanged — it already matched |
+| Family | **Inter Regular** | `'Inter'` first, system stack behind it |
+| Size / leading | 12 / 16 | same |
+| Weight | 400 | stated explicitly rather than inherited |
+| Colour | `rgba(61, 19, 7, 0.5)` | `--text-body` at 50% |
+| Tracking | `-0.150390625` | `-0.1504px`, no longer rounded to `-0.15px` |
+| Vertical | centred in a 43.96px field | centred by the input in a 44px field |
+
+**INTER IS NOT SELF-HOSTED AND THIS PASS DID NOT ADD IT.** It is named first in
+the stack so the declaration says what the design asks for and so self-hosting
+it later is one `@font-face` and nothing else — but on a phone nothing has
+Inter installed, so what actually renders today is the system stack at Inter's
+metrics. That is the second unhosted design face in the project, alongside DM
+Sans (section 19). Both want the same decision, which is a typography pass, not
+a side effect of a layout change.
+
+The 12px size stays under the 16px input floor. That is safe only because the
+field is `disabled` and cannot be focused, so Safari cannot zoom — the comment
+in `.topic-search-input` says so, and enabling the field means putting
+`var(--fs-base)` back.
+
+### Not verified
+
+Still nothing on a real iPhone. Everything above was measured in headless
+Chrome at 500px, where `env(safe-area-inset-top)` resolves to zero — so the
+93px greeting term and the 11.77px gap under the search field are both worth
+re-checking on a notched device, since that is where the header band and the
+sheet's top both shift.

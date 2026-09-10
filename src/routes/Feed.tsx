@@ -26,13 +26,15 @@ import { EmptyState, ErrorState, SkeletonCards } from '../components/States';
 function Greeting({ name }: { name: string | null }) {
   return (
     <h1 className="feed-greeting">
-      {/* "Hello," is the design's own lettering, drawn as outlines. The name is
-          live text beside it on the same baseline — it comes from user
-          metadata, so it can never be part of the artwork. The design sets it
-          in DM Sans Bold, which is still not loaded, so it renders in the
-          system stack. See CLAUDE.md section 23. */}
+      {/* "Hello," is the design's own lettering, drawn as outlines, with the
+          name on its own line beneath it — the frame's own break. The name is
+          live text because it comes from user metadata, so it can never be
+          part of the artwork. The design sets it in DM Sans Bold, which is
+          still not loaded, so it renders in the system stack. See CLAUDE.md
+          section 23. */}
       <span className="sr-only">Hello, </span>
-      <HelloLettering /> <span className="feed-greeting-name">{greetingName(name)}!</span>
+      <HelloLettering />
+      <span className="feed-greeting-name">{greetingName(name)}!</span>
     </h1>
   );
 }
