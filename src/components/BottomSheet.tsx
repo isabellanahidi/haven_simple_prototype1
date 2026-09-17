@@ -8,8 +8,11 @@ import type { ReactNode } from 'react';
  *
  * Two snap points and nothing in between:
  *
- *   peek — the sheet header only: the grab handle and the "New Discussions"
- *          pill. Its height is --sheet-peek, and the resting transform is
+ *   peek — the sheet header only: the grab handle and the label pill (the
+ *          frame calls it "New Discussions"; the app now says "General
+ *          discussions" — the label is a prop, passed from Feed.tsx, and this
+ *          component is indifferent to it). Its height is --sheet-peek, and
+ *          the resting transform is
  *          expressed in CSS as translateY(calc(100% - var(--sheet-peek))), so
  *          the collapsed position is correct on the very first paint, before
  *          any measurement has happened.

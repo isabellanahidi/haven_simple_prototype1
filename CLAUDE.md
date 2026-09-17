@@ -885,6 +885,7 @@ The cascade on `handle_new_user` also removes its trigger on `auth.users`, which
 | `/p/:id` | Post detail | Full post, like button, **threaded** comments to any depth with per-comment likes, reply composer. See section 21. |
 | `/t/pcos` | PCOS topic | The one topic page. Same card, same ordering, same `limit 50`, `.eq('topic', 'pcos')`. Readable signed out. A "New post" button opens `/new?topic=pcos`. See section 26. |
 | `/new` | Create post | Title + body, character counters matching the DB constraints, submit → redirect to the new post. Takes an optional `?topic=` preset. |
+| `/messages` | Messages | A placeholder. One centred line, "Stay tuned for webinar", and nothing else. See section 27. |
 | `/me` | Profile edit | Edit `display_name`, `bio`, `avatar_emoji`. Optionally list the user's own posts. |
 
 ### Suggested queries
@@ -1099,6 +1100,7 @@ In standalone mode there is no back gesture and no URL bar, so every route must 
 | `/` | Home. Header carries the settings button; tab bar carries Home and Ask |
 | `/p/:id` | "← Feed", on both the loaded and not-found branches |
 | `/t/pcos` | "← Home" |
+| `/messages` | **The tab bar only** — no back link, on purpose. See section 27. |
 | `/new` | "← Feed", or "← PCOS" when a topic is preset. On success it redirects to `/p/:id`, which has its own |
 | `/me` | "← Feed" |
 | `*` | "← Back to the feed" |
@@ -1472,11 +1474,12 @@ card; the avatar `emoji-grid` also fits fewer columns per row, since it is
 
 ### Still open
 
-**The Messages tab has no destination.** The design has a `messages` screen
-(`179:4954`) and this app has no such route, so the tab renders as a `disabled`
-button at 0.35 opacity — present for the design's three-slot spacing, inert,
-and labelled "Messages — not available yet" for screen readers. It is the one
-piece of the shell that is a placeholder rather than an implementation.
+~~**The Messages tab has no destination.**~~ **Resolved Sep 17 — it routes to
+`/messages`.** The tab is a `<Link>` like the other two and highlights the same
+way; `.tab-disabled` survives in the stylesheet for the next placeholder but
+nothing uses it. The *screen* is still a placeholder — the design's `messages`
+frame (`179:4954`) has still not been read — but the shell no longer contains
+an inert control. See section 27.
 
 **The gear maps to `/me`, not to the design's `settings` frame** (`179:4722`),
 which this pass did not read. `/me` is the app's account screen — profile
@@ -2538,6 +2541,12 @@ the variable, rather than nudging the 95px.
 
 ### 2. Frosted glass
 
+> **The colour was changed Sep 17 — the stops are burgundy tints of `--button`
+> and `--button-deep` now, not the frame's `#f5b3c1` wash. See section 27.
+> Everything below about the *mechanism* — the pseudo-element, the alpha living
+> in the colour, and why there is no `opacity` property — is unchanged and is
+> the reason the new stops are written the way they are.**
+
 `.sheet::before` — still the pseudo-element, for the reason section 23 gives —
 now carries an 85% colour plus `backdrop-filter: blur(14px)`, prefixed for
 Safari.
@@ -2848,3 +2857,209 @@ present"* — including `vite.config.ts` and files nothing has touched.
 **`npx eslint src/` is clean**, and so is `npm run build`. The fix is to delete
 that stray directory or add it to `.gitignore` plus the ESLint ignores;
 untouched here because it is not this task's to change.
+
+---
+
+## 27. Burgundy drawer, relabelled pill, and a real Messages route (Sep 17)
+
+CSS and markup. No schema, no query, no new dependencies, and the home feed
+query is untouched again.
+
+### 1. The drawer surface is burgundy
+
+The frame's `#f5b3c1` wash was too pale to do its job. At 8% and 16% over
+`--bg`, then taken to 85%, the two stops composited to **`#fde9ee` and
+`#fde5ea`** — **1.03:1 and 1.06:1 against `--bg`**. The sheet's edge was drawn
+entirely by its box-shadow; the surface itself was indistinguishable from the
+page behind it.
+
+Both stops are now tints of the brand, so **no new hex entered the
+stylesheet** — `#f5b3c1` was the last literal colour outside `:root` and it is
+gone:
+
+| Stop | Was | Now | Composites to | vs `--bg` |
+|---|---|---|---|---|
+| top | `#f5b3c1` 8% | **`--button` 12%** | `#f4d8df` | 1.03 → **1.18:1** |
+| bottom | `#f5b3c1` 16% | **`--button-deep` 14%** | `#eed2d8` | 1.06 → **1.25:1** |
+
+Using `--button` at the top and `--button-deep` at the bottom keeps the
+existing "deeper toward the bottom" direction while shifting the lower half
+toward the deeper burgundy, which is what reads as burgundy rather than pink.
+
+**The frosted treatment is untouched, exactly as required.** Still
+`.sheet::before`, still `backdrop-filter: blur(14px)` prefixed for Safari,
+still **no `opacity` property anywhere on the element**, and the 85% alpha
+still lives inside the colour. Section 25 explains why that last point is not
+a style preference: an element carrying both `opacity` and `backdrop-filter`
+composites as one group, so the blurred backdrop gets blended back toward the
+unblurred original and the frost reads as a smear. Each stop is also still
+**pre-composited over `--bg` and then taken to 85%** — one translucent layer,
+not two stacked, so the number means what it says.
+
+#### Contrast — checked, and the answer has two halves
+
+**Post-card text and the heart are unaffected, because they are not on this
+surface.** `.post-card` is opaque `--surface` (`#ffffff`), so everything
+inside it is measured against white no matter what the sheet does:
+
+| On the card | Contrast on `#ffffff` |
+|---|---|
+| `.post-title` (`--text`) | 18.37:1 |
+| `.post-excerpt` (`--text-body`) | 16.22:1 |
+| byline + timestamp (`--text-muted`) | 6.65:1 |
+| the heart and its count (`--like`) | 7.61:1 |
+
+**What does sit directly on the sheet is the empty and error state copy** in
+`.sheet-body` — `--text-muted` and `--danger` — and that is what set the
+tints. Over `--bg`:
+
+| | top stop | bottom stop |
+|---|---|---|
+| `--text-muted` | 4.99:1 | **4.71:1** |
+| `--danger` | 4.90:1 | **4.64:1** |
+
+**These are the deepest stops that keep both over 4.5.** One step deeper
+(`--button-deep` 16%) puts `--danger` at 4.48 and fails. That is the ceiling,
+and it is why the burgundy is not deeper still.
+
+**One honest caveat, and it is pre-existing rather than new.** The sheet is
+translucent over a *blurred* backdrop, so its real colour depends on what is
+behind it — and when expanded, that includes the topic tiles. Against a
+worst-case solid `--button` tile the state text measures 3.84 and 3.61, under
+4.5. It was already under 4.5 there before this change (4.46 and 4.33), so
+this deepens an existing shortfall rather than creating one. The true value
+sits between the two columns, and nearer the `--bg` one, because six of the
+seven tiles are greyscaled to 60% and the 14px blur averages them with the
+page showing through the gaps. **Not fixed here** — the fix is either a
+darker token for state text inside the sheet or an opaque strip behind it, and
+both are design decisions rather than part of a colour pass.
+
+### 2. The pill reads "General discussions"
+
+`<BottomSheet title="General discussions">` in `Feed.tsx`. One word changed;
+the component takes the label as a prop and is indifferent to it. The
+`sr-only` label follows automatically — it now announces "Expand General
+discussions".
+
+**The PCOS page's "New post" button is untouched**, as asked.
+
+**One correction to the request, because it changes nothing but is worth
+knowing.** The brief described this control as opening `/new` untagged. It
+does not — **the pill is the drawer's expand/collapse label**, and tapping it
+toggles the sheet. There is no other control on the home drawer that reads
+anything like "New discussion", so the target was unambiguous, and since only
+the label changed, "behaviour is unchanged" holds either way. The controls
+that *do* open `/new` untagged are the tab bar's `+` and the feed empty
+state's "Ask a question", and neither was touched.
+
+The frame still calls this pill "New Discussions". That provenance is kept in
+the comments in `Feed.tsx` and `BottomSheet.tsx` so the divergence from the
+design is visible rather than looking like drift.
+
+### 3. Messages is a real route
+
+**The tab existed and pointed nowhere** — it was a `<button disabled>` at 0.35
+opacity, labelled "Messages — not available yet", added for the design's
+three-slot spacing (section 16). So neither stop-condition in the brief
+applied: it exists, and it did not already link somewhere. **`/messages` is
+the path I chose**, since the tab supplied none.
+
+- **`src/routes/Messages.tsx`** renders one `<p>`: `Stay tuned for webinar`.
+  No page header, no back link, nothing else.
+- **`TabBar.tsx`**: the `<button disabled>` became a `<Link to="/messages">`
+  with `aria-current="page"` on the active route, matching Home and Ask
+  exactly. It needed **no CSS of its own** — the 48px box and the `--button`
+  circle come from `.tab` and `.tab-active`.
+- **`.tab-disabled` is kept** in the stylesheet though nothing uses it. It is
+  what made the slot honest while it was inert, and the next placeholder will
+  want it.
+
+**The single messages icon still needs no second file.** Section 16's reason
+holds and now pays off: the bubble's stroke is the same colour as the active
+circle, so against that circle the stroke vanishes and the white fill reads as
+a solid bubble. One file, two correct renderings — verified on screen. Do not
+"fix" the asymmetry.
+
+**No back link, deliberately.** The tab bar renders outside `<Routes>` on
+every route, which is section 12's structural guarantee, so the screen is
+leavable in the standalone app without one — and a back link would be the only
+other element on a page whose point is that it holds a single sentence.
+
+#### Centring
+
+`.messages-page` is a flex centre over a `min-height` built from tokens that
+already exist:
+
+```
+100dvh
+  - (var(--header-h) + env(safe-area-inset-top))   the header band
+  - var(--sp-3)                                    .app-main's top padding
+  - (var(--tabbar-h) + var(--sp-6) + env(safe-area-inset-bottom))
+                                                   .app-main's bottom padding,
+                                                   which already clears the bar
+                                                   and the home indicator
+```
+
+**`100dvh`, not `100vh`** — `100vh` overshoots while Safari's URL bar is
+showing, which would push the text below the true centre. Every other term is
+a token or an inset already in use, so the page follows the header and the bar
+if either is ever retuned.
+
+**Measured at 393×852:** the text centre lands at **y=410.5**; the midpoint of
+the visible gap between the header and the tab bar is **y=420**. The text is
+**9.5px above optical centre**, and that is `.app-main`'s own `--sp-6` of
+bottom breathing room, not a mistake — it is the "existing safe-area padding"
+the brief asked to reuse. The text bottom is 424 against a tab bar top of 787,
+so it is nowhere near the bar, and the page does not scroll. Say the word if
+you want it dead-centre in the gap instead; it is one term.
+
+### Mobile Safari baseline — not regressed
+
+| | |
+|---|---|
+| `100dvh` | Used, and `100vh` appears nowhere |
+| Safe-area insets | Both composed into the new `min-height`; the tab bar's own `padding-bottom: env(safe-area-inset-bottom)` untouched |
+| Header | **Measured at 53px** on `/messages` |
+| Tap targets | The Messages tab is 48px, unchanged; no target shrank |
+| 16px inputs | No input was touched |
+
+### Verified in the running app
+
+Headless Chrome at 393×852 over CDP, against the live Supabase project:
+
+| Check | Result |
+|---|---|
+| `.sheet::before` background | Both stops present at `/ 0.85` alpha |
+| `.sheet::before` `opacity` | **`1`** — the property is not set |
+| `.sheet::before` `backdrop-filter` | `blur(14px)`, intact |
+| Drawer, peek and expanded | Surface visibly separates from `--bg`; tiles still legibly blurred behind it |
+| Pill | "General discussions"; `sr-only` reads "Expand General discussions" |
+| Messages tab | `<a href="/messages">`, `aria-current="page"` when active |
+| Active tabs on `/messages` | Exactly 1; the burgundy circle renders with the white bubble |
+| Disabled tabs anywhere | **None** |
+| `/messages` content | `Stay tuned for webinar` and nothing else |
+| Vertical scroll on `/messages` | None |
+
+### What I guessed
+
+1. **The route path `/messages`.** The tab pointed nowhere, so nothing dictated
+   it. `/messages` is the brief's own suggestion and matches the tab's label.
+2. **That "no page header" means no *page-level* header.** The app shell's
+   header — centred logo plus the settings button — still renders, because it
+   lives outside `<Routes>` in `App.tsx` and removing it per-route would break
+   section 12's guarantee that every screen is leavable. Only the page itself
+   is bare. Tell me if you meant the shell header should be hidden here too.
+3. **Type treatment for the one line**: `--fs-lg` (18px) in `--text-body`,
+   centred. Nothing specifies it and there is no frame for this screen.
+4. **`--button` 12% / `--button-deep` 14%** as the pair. "Noticeably more
+   burgundy" is a judgement; these are the deepest stops that keep the state
+   text over 4.5:1, so the ceiling was set by contrast and the choice within it
+   was to go all the way to that ceiling.
+
+### Not verified
+
+**Still nothing on a real iPhone.** `env(safe-area-inset-top)` and
+`env(safe-area-inset-bottom)` both resolve to zero in headless Chrome, so the
+`/messages` centring wants a look on a notched device — it is the term most
+sensitive to the insets. The blur's cost under a real finger is still open too,
+and the deeper surface does not change that either way.

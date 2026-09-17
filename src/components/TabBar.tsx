@@ -13,6 +13,11 @@ import { Link, useLocation } from 'react-router-dom';
  * not one glyph recoloured — so home and ask each ship two files. The message
  * bubble ships one: its stroke is the same colour as the active circle, so the
  * stroke disappears against it and the white fill reads as a solid bubble.
+ * That is why Messages needs no second file even now that it has an active
+ * state — one file, two correct renderings. Do not "fix" the asymmetry.
+ *
+ * All three slots are live as of Sep 17. Messages used to be a disabled button
+ * with no destination; it now routes to /messages. See section 27.
  */
 
 /** Which tab owns a given path. Post detail belongs to the feed. */
@@ -25,6 +30,7 @@ export function TabBar() {
 
   const onHome = homeIsActive(pathname);
   const onAsk = pathname === '/new';
+  const onMessages = pathname === '/messages';
 
   return (
     <nav className="tab-bar" aria-label="Main">
@@ -55,12 +61,17 @@ export function TabBar() {
           />
         </Link>
 
-        {/* The design's third tab is a Messages screen this app does not have,
-            and this pass adds no routes. Rendering it disabled keeps the
-            design's three-slot spacing without inventing a destination. */}
-        <button className="tab tab-disabled" type="button" disabled aria-label="Messages — not available yet">
+        {/* A Link like the other two now, and styled by the same rules — the
+            48px box and the --button circle on the active state come from
+            .tab and .tab-active, so this slot needed no CSS of its own. */}
+        <Link
+          className={`tab${onMessages ? ' tab-active' : ''}`}
+          to="/messages"
+          aria-label="Messages"
+          aria-current={onMessages ? 'page' : undefined}
+        >
           <img className="tab-icon" src="/icons/tab-messages.svg" alt="" />
-        </button>
+        </Link>
       </div>
     </nav>
   );

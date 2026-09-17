@@ -51,7 +51,7 @@
   /* The design's single brand colour: the active tab, avatar circles, the
      comment and heart icons, and the like counts are all this one value. */
   --button: #9f2042;
-  --button-deep: #7b0d1e; /* the "New Discussions" pill */
+  --button-deep: #7b0d1e; /* the drawer pill, and the drawer surface's lower tint */
   --on-button: #ffffff; /* text and icons on top of --button */
 
   /* The heart and its count are brand-coloured in the design, so --like is no
@@ -316,8 +316,9 @@ a {
   opacity: 0.85;
 }
 
-/* No Messages screen exists yet, so the tab is present for the design's
-   spacing but inert. Dimmed so it does not read as a live destination. */
+/* Kept for any tab that has no destination. Nothing uses it today — Messages
+   became a real route on Sep 17 — but this rule is the one thing that made the
+   third slot honest while it was inert, so it stays for the next placeholder. */
 .tab-disabled {
   opacity: 0.35;
   cursor: not-allowed;
@@ -977,6 +978,41 @@ a {
   display: block;
 }
 
+/* ---------- messages (/messages) ----------
+   One line of text and nothing else: no header, no back link. The tab bar is
+   the way out, which is why it lives outside <Routes> (section 12).
+
+   Centred in what is left of the viewport once the header and the tab bar are
+   accounted for. 100dvh, NOT 100vh: 100vh overshoots while Safari's URL bar is
+   showing, which would push the text below the true centre. Every term is a
+   token or an inset already in use, so this follows the header and the bar if
+   either is ever retuned:
+
+     100dvh
+       - the header band, inset included
+       - .app-main's own top padding
+       - .app-main's own bottom padding, which already clears the tab bar and
+         the home indicator
+
+   So the text is centred between the header and the bar and can never sit
+   under either. */
+.messages-page {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: calc(
+    100dvh - (var(--header-h) + env(safe-area-inset-top)) - var(--sp-3) -
+      (var(--tabbar-h) + var(--sp-6) + env(safe-area-inset-bottom))
+  );
+}
+
+.messages-text {
+  margin: 0;
+  text-align: center;
+  font-size: var(--fs-lg);
+  color: var(--text-body);
+}
+
 /* ---------- topic page (/t/pcos) ----------
    One topic, hand-placed — see CLAUDE.md section 26. The page reuses
    .detail-title and the feed card wholesale, so this is only the header row
@@ -1108,10 +1144,28 @@ a {
   inset: 0;
   z-index: -1;
   border-radius: inherit;
+  /* Burgundy, not the frame's pale pink wash. The old #f5b3c1 8%/16% stops
+     composited to #fde9ee / #fde5ea over --bg — 1.03:1 and 1.06:1 against the
+     page, which is to say invisible. These are tints of the brand itself, so
+     no new hex enters the stylesheet: --button at the top, --button-deep at
+     the bottom, keeping the existing "deeper toward the bottom" direction.
+     They composite to #f4d8df / #eed2d8, or 1.18:1 and 1.25:1 against --bg.
+
+     THE ALPHA IS IN THE COLOUR AND MUST STAY THERE. Each stop is
+     pre-composited over --bg and then taken to 85% — one translucent layer,
+     not two stacked ones. An `opacity` property here would be wrong twice
+     over: it would fade the sheet's children with it, and an element carrying
+     both opacity and backdrop-filter composites as one group, blending the
+     blurred backdrop back toward the unblurred original. See section 25.
+
+     THE TINTS ARE CAPPED BY CONTRAST, not by taste. The empty and error states
+     inside .sheet-body sit directly on this surface in --text-muted and
+     --danger. At these stops they measure 4.99 / 4.90 (top) and 4.71 / 4.64
+     (bottom) over --bg. One step deeper puts --danger under 4.5. */
   background: linear-gradient(
     to bottom,
-    color-mix(in srgb, color-mix(in srgb, #f5b3c1 8%, var(--bg)) 85%, transparent),
-    color-mix(in srgb, color-mix(in srgb, #f5b3c1 16%, var(--bg)) 85%, transparent)
+    color-mix(in srgb, color-mix(in srgb, var(--button) 12%, var(--bg)) 85%, transparent),
+    color-mix(in srgb, color-mix(in srgb, var(--button-deep) 14%, var(--bg)) 85%, transparent)
   );
   /* Safari has shipped the prefixed form since iOS 9; unprefixed is 18+. */
   -webkit-backdrop-filter: blur(14px);
