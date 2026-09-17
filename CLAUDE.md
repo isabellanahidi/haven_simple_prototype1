@@ -2617,3 +2617,234 @@ the name and post titles, Inter for the search placeholder (sections 19 and
 resolves to zero in headless Chrome, so the 95px greeting term and the 4px
 overlap both want a look on a notched device — as does the blur's cost under a
 real finger.
+
+---
+
+## 26. A PCOS topic page — one slice of a cut feature, on purpose (Sep 17)
+
+**This re-adds a narrow piece of "communities / subreddits", which section 3
+cuts.** Recorded here as a decision, the way section 25 records the drawer
+change, so a later session does not read section 3, conclude the topic column
+is a mistake, and remove it — or read this and conclude a topics system is
+now fair game.
+
+### What was decided
+
+| | |
+|---|---|
+| **Re-added** | One topic, PCOS. A nullable `posts.topic` column that accepts exactly one value, a literal `/t/pcos` route, and a link on the one tile the home page already draws in full colour. |
+| **Still cut** | Everything else section 3 says. No topics table, no slug registry, no topic picker in the composer, no second topic, no `/t/:slug`, no per-topic feeds, no subscribing, no moderation per topic. Search is still cut too, and its field is still `disabled`. |
+
+**The home feed is untouched, and that is the load-bearing part of the
+decision.** There is still *one global feed*: its query does not mention
+`topic`, so PCOS posts appear in the drawer alongside everything else. The
+topic page is a filtered view of the same single feed, not a separate room
+with its own membership. That is what keeps this a slice rather than the first
+subreddit.
+
+### Why it is shaped to resist growing
+
+Every place the feature could quietly generalise is deliberately closed:
+
+- **The route is the literal string `/t/pcos`**, not `/t/:slug`. A parameter
+  would be a topics system with one row in it, and the next person to add a
+  topic would only have to add a tile.
+- **The set of legal values lives in a CHECK constraint**,
+  `topic is null or topic = 'pcos'`. Widening it is a visible schema change
+  that has to be pasted into the SQL Editor by a person — not an insert, and
+  not an edit to a TypeScript array.
+- **`src/lib/topics.ts` mirrors that constraint and says so.** It is the one
+  place the slug is written down on the client.
+- **`TOPIC_HREFS` in `TopicGrid.tsx` is a lookup with one entry**, rather than
+  an optional `href` on all seven topics. An optional field on every tile
+  reads as an invitation to fill it in; six tiles with nowhere to go and one
+  exception reads as what it is.
+
+**Adding a second topic is a migration, a route, and a tile, in that order.**
+If a task seems to need only the tile, the constraint will stop it, which is
+the point.
+
+### The schema
+
+`supabase/migrations/2026-09-17_pcos_topic.sql`. **Written but NOT applied** —
+it is to be pasted into the SQL Editor by hand, as its own submission. Section
+7 is updated to match and is therefore ahead of the live database on this one
+point; the note in section 7's migration table says what that costs until it
+is run.
+
+- **`topic text`, nullable, no default.** NULL means untagged, which is the
+  normal case: every post that exists today, and every post made from `/new`
+  without the preset. No default, so "untagged" is never something the
+  database chose on the author's behalf.
+- **`posts_topic_check`** is the real guard. The client validates the preset
+  too, but only so it never knowingly sends a value the constraint would
+  reject.
+- **`posts_topic_pcos_idx` on `(created_at desc) where topic = 'pcos'`** —
+  the ordering both feeds use, partial on the tag so it stays small while
+  untagged posts dominate the table.
+
+Two things about that file worth carrying:
+
+- **It contains no `rollback`, and none may be added.** Finding 4f: the SQL
+  Editor runs a paste as one transaction, so a rollback at the bottom discards
+  the DDL above it while the verification queries in the same run still report
+  success. The verification block is read-only, and running it in its own
+  submission afterwards is the only way to know the change committed rather
+  than merely pending.
+- **It is re-runnable.** `add column if not exists`, `drop constraint if
+  exists` before the add (Postgres has no `add constraint if not exists`), and
+  `create index if not exists` — so a paste that silently rolled back is
+  recovered by pasting it again.
+
+### RLS — no edits needed, and one consequence you asked about
+
+**`posts_insert` needs no change.** It is `with check (auth.uid() =
+author_id)`: row-scoped, naming no columns, so a new column rides along with
+no policy edit. RLS in Postgres gates *rows*, not columns — column-level
+control is a `grant`, and this project grants nothing per column.
+
+**`posts_update` does let an author change `topic` on their own post.** It is
+`using (auth.uid() = author_id) with check (auth.uid() = author_id)`, so an
+author holding their own JWT can tag an existing post `'pcos'`, or untag one,
+straight over PostgREST. The constraint still bounds *what* they can set it
+to; it does not stop them setting it.
+
+**Left as is, deliberately** — it is the same shape as the `hidden` caveat
+already recorded in section 7's design notes, where an author can flip their
+own post back to `hidden = false`. There is no edit UI, so this is not a path
+anyone reaches by using the app. If it ever matters, the fix is a column-level
+`grant` or a trigger that rejects a `topic` change on update, not a policy
+rewrite.
+
+### The client
+
+| File | What |
+|---|---|
+| `src/lib/topics.ts` | The slug, `asTopic()` validating anything from outside the code, `topicLabel()`. New. |
+| `src/routes/TopicPcos.tsx` | `/t/pcos`. New. |
+| `src/components/PostList.tsx` | The feed card, lifted out of `Feed.tsx` **unchanged** so both pages render one card rather than two copies. New. |
+| `src/routes/Feed.tsx` | Only the list branch of `FeedBody` now delegates to `PostList`. **The query is byte-for-byte what it was.** |
+| `src/routes/CreatePost.tsx` | Reads and validates `?topic=`, sends `topic` on the insert, and says where the post will land. |
+| `src/components/TopicGrid.tsx` | The PCOS tile's contents wrapped in a `<Link>`. The other six and the search field untouched. |
+| `src/styles.css` | `.topic-tile-link`, and the topic page's header row. |
+
+**The topic page's query mirrors the feed's pair**, for the same reasons: the
+author embed carries `profiles!posts_author_id_fkey` because `likes` makes
+`posts → profiles` ambiguous (`PGRST201`, section 8), and my own likes are
+fetched separately into a `Set` rather than embedded. Same `created_at desc`,
+same hard `limit 50`, no pagination — infinite scroll is still cut.
+
+**The likes query is deliberately not narrowed to this page's posts.** It is
+character-for-character the feed's own `select('post_id').eq('user_id', …)`,
+so the two pages share a response rather than issuing two near-identical
+requests.
+
+**Signed-out reading works with no new policy.** `posts_select` is
+`hidden = false or author_id = auth.uid()`, whose left arm passes when
+`auth.uid()` is null — the same reason the feed and post detail read signed
+out (section 6).
+
+**The "New post" button gets its gating for free.** It is a `<Link>` to
+`/new?topic=pcos`, and `/new` is already wrapped in `RequireAuth`, which sends
+a signed-out visitor to `/signin` carrying `location`. **`SignIn` rebuilds its
+destination as `pathname + search + hash`**, so the preset survives the round
+trip and the person lands back in the composer with the topic still set. The
+button renders signed out rather than hiding, matching how the like button and
+reply composer behave (section 6).
+
+### The preset is a search param, and it is validated
+
+`?topic=pcos`, not router state: a search param survives a reload, survives
+the sign-in round trip, and is visible to `useSearchParams` with no plumbing.
+
+It is also typed by whoever is holding the phone, so `asTopic()` runs on it.
+**Anything unrecognised becomes `null` — untagged — rather than an error.** A
+junk preset should let the person write their post, not block the composer,
+and the database never sees a value its constraint would reject. `/new`
+reached from the tab bar has no param and posts untagged, exactly as before.
+
+**The insert still uses `.select('id').single()` and checks the returned
+row.** Unchanged, and finding 4a is why: a write filtered out by RLS comes
+back `200` with an empty result and no `error`, so the returned row is the
+only proof the insert did anything.
+
+### The tile
+
+**The `<li>` is kept and the `<Link>` goes inside it**, not the other way
+round — the grid stays a list of tiles rather than becoming a list of links,
+and the six inert tiles are untouched.
+
+The link is `position: absolute; inset: 0`, so it covers the whole card.
+**That box is identical to the tile's**, which is what keeps the absolutely
+positioned illustration and pin inside it resolving against the same rectangle
+they did before — verified, the tile renders unchanged.
+
+**Tap target: 128 × 87 at a 320px viewport**, measured, comfortably past the
+44px minimum, and it only grows with the column. It carries
+`-webkit-tap-highlight-color: transparent` like every other control here, with
+a 2% press scale as the feedback instead — dropped under
+`prefers-reduced-motion`.
+
+### Verified in the running app
+
+Driven over CDP against the live Supabase project at 500px, and at 320px for
+the tap target:
+
+| Check | Result |
+|---|---|
+| Linked tiles in the grid | **1 of 7**; its parent is an `<li>`; `href="/t/pcos"`; accessible name "PCOS/PMOS" |
+| The other six | No interactive descendant. Search field still `disabled` |
+| Link box vs. tile box | Identical; illustration and pin render unchanged |
+| Tap target at 320px | 128 × 87 — passes 44 × 44 |
+| Tapping the tile | Navigates to `/t/pcos`, `<h1>` reads "PCOS" |
+| "New post" | `href="/new?topic=pcos"` |
+| `/new?topic=pcos` signed out | Redirects to `/signin` — `RequireAuth` gating intact |
+| Inputs | 16px computed — the Safari zoom floor is not regressed |
+| `/t/pcos` query | Reaches PostgREST and returns **`column posts.topic does not exist`**, which is the migration not being applied yet, and is itself proof the filter is really being sent |
+
+### What has NOT been verified
+
+- **The migration has not been run**, so nothing below it has: a real insert
+  carrying `topic`, the `CHECK` rejecting a bad value, the partial index being
+  chosen, and the topic page's loaded and empty states with real rows. The
+  page's error branch is what renders today.
+- **The sign-in round trip was read, not run.** `RequireAuth` passes
+  `location` and `SignIn` rebuilds `pathname + search + hash`; confirming the
+  preset actually survives needs a real inbox.
+- **Still nothing on a real iPhone.** Headless Chrome has no safe-area insets
+  and no finger.
+
+### What was guessed
+
+Four things, all cosmetic or conventional, none load-bearing:
+
+1. **The page header is a title row with the button beside it** — "PCOS" on
+   the left, "New post" on the right. There is no Figma frame for a topic
+   page; this reuses `.detail-title` and `.btn-primary` rather than inventing
+   a treatment. `.btn-primary` is full-width by default, so
+   `.topic-page-new` overrides it to `width: auto` for a control that sits
+   next to a heading.
+2. **A "← Home" back link**, matching every other route's back link. Section
+   12 flags those as redundant now that the tab bar reaches `/` from
+   everywhere and a candidate for removal across all five routes — this adds
+   a sixth rather than pre-empting that decision. Remove it with the others
+   when that pass happens.
+3. **The composer says "Posting to PCOS."** in a `.form-notice`, because the
+   preset is otherwise invisible: the URL is not on screen in standalone
+   mode. It is a statement, not a picker. `/new`'s back link also becomes
+   "← PCOS" when a topic is preset, so the composer returns where it was
+   opened from.
+4. **The empty-state copy**, "Nothing here yet / Be the first to post about
+   PCOS."
+
+### A pre-existing failure worth knowing about
+
+**`npm run lint` fails on this machine, and not because of this change.** An
+untracked `.kilo/worktrees/past-marquis` directory holds a second copy of the
+repo, so `eslint .` walks into it and typescript-eslint refuses every file with
+*"No tsconfigRootDir was set, and multiple candidate TSConfigRootDirs are
+present"* — including `vite.config.ts` and files nothing has touched.
+
+**`npx eslint src/` is clean**, and so is `npm run build`. The fix is to delete
+that stray directory or add it to `.gitignore` plus the ESLint ignores;
+untouched here because it is not this task's to change.
