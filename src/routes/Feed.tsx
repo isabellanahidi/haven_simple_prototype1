@@ -3,9 +3,8 @@ import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useSession } from '../lib/session';
 import { greetingName } from '../lib/personalName';
-import { author, type FeedPost } from '../lib/types';
-import { Byline } from '../components/Byline';
-import { LikeButton } from '../components/LikeButton';
+import { type FeedPost } from '../lib/types';
+import { PostList } from '../components/PostList';
 import { BottomSheet } from '../components/BottomSheet';
 import { HelloLettering } from '../components/HelloLettering';
 import { TopicGrid } from '../components/TopicGrid';
@@ -140,34 +139,7 @@ function FeedBody({
       />
     );
 
-  return (
-    <ul className="feed-list">
-      {posts.map((post) => (
-        // The like button is a real <button>, so it sits beside the card's
-        // <Link> rather than inside it — a button nested in an anchor is
-        // invalid, and tapping the heart would navigate.
-        <li className="post-card" key={post.id}>
-          <Link className="post-card-main" to={`/p/${post.id}`}>
-            <Byline author={author(post.profiles)} createdAt={post.created_at} lead />
-            <h2 className="post-title">{post.title}</h2>
-            {post.body && <p className="post-excerpt">{post.body}</p>}
-          </Link>
-          <div className="post-meta">
-            <LikeButton
-              postId={post.id}
-              initialCount={post.like_count}
-              initialLiked={likedIds.has(post.id)}
-            />
-            <Link className="stat" to={`/p/${post.id}`}>
-              <span className="stat-icon" aria-hidden="true">
-                💬
-              </span>
-              {post.comment_count}
-              <span className="sr-only">{post.comment_count === 1 ? ' reply' : ' replies'}</span>
-            </Link>
-          </div>
-        </li>
-      ))}
-    </ul>
-  );
+  // The card markup lives in PostList — shared with /t/pcos so the two render
+  // the same card. The query above is unchanged.
+  return <PostList posts={posts} likedIds={likedIds} />;
 }

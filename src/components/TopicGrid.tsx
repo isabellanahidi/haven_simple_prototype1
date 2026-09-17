@@ -1,4 +1,6 @@
-import type { CSSProperties } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
+import { Link } from 'react-router-dom';
+import { PCOS } from '../lib/topics';
 
 /**
  * The search field and topic tiles from the Figma frame Home-NDTab-closed
@@ -16,12 +18,19 @@ import type { CSSProperties } from 'react';
  *   - the search input is `disabled`, styled to match the frame rather than
  *     to take the browser's grey disabled treatment. It does not focus, so it
  *     cannot raise the iOS keyboard over a field that would ignore the typing.
- *   - the tiles are list items, not buttons or links. They look tappable
- *     because the frame draws them that way; they are not announced as
- *     controls, and they have no :active state, so nothing promises a
+ *   - six of the seven tiles are list items, not buttons or links. They look
+ *     tappable because the frame draws them that way; they are not announced
+ *     as controls, and they have no :active state, so nothing promises a
  *     response that will not arrive.
  *
- * Wiring either one up means adding a feature that was cut. Ask first.
+ * THE ONE EXCEPTION IS PCOS/PMOS, which links to /t/pcos. That is a narrow,
+ * deliberate re-add of the cut feature, decided in CLAUDE.md section 26 — one
+ * topic, hand-placed, with no topics table behind it. The <li> is kept and the
+ * link goes INSIDE it, so the grid stays a list of tiles rather than a list of
+ * links, and the six inert tiles are unchanged.
+ *
+ * Wiring up the search field, or a second tile, means adding a feature that
+ * was cut. Ask first.
  * ---------------------------------------------------------------------------
  *
  * The illustrations are all one sprite sheet, public/img/haven-topics.png,
@@ -58,6 +67,16 @@ type Topic = {
  * one flag with a way to go wrong.
  */
 const ACTIVE_TOPIC = 'PCOS/PMOS';
+
+/**
+ * The one tile that goes somewhere, keyed by the same name. Deliberately a
+ * lookup with a single entry rather than a `href` field on every Topic: six of
+ * the seven have nowhere to go, and an optional field on all of them reads as
+ * an invitation to fill it in.
+ */
+const TOPIC_HREFS: Record<string, string> = {
+  'PCOS/PMOS': `/t/${PCOS}`,
+};
 
 /**
  * The pin is a real component in the file with Default and select variants,
@@ -133,6 +152,27 @@ function Pin() {
   );
 }
 
+/**
+ * The inside of a tile: a link when the topic has a destination, a plain
+ * wrapper when it does not.
+ *
+ * The link is absolutely inset to the tile's own box, so it covers the whole
+ * card — the tap target is the tile, comfortably past 44x44 at every width the
+ * two-column grid produces. Because that box is identical to the tile's, the
+ * absolutely positioned illustration and pin inside it resolve against the
+ * same rectangle they did before and render unchanged.
+ */
+function TileBody({ href, children }: { href?: string; children: ReactNode }) {
+  if (!href) return <>{children}</>;
+  // No aria-label: the link's accessible name is its own text, which is the
+  // topic's name. The illustration and the pin are both aria-hidden.
+  return (
+    <Link className="topic-tile-link" to={href}>
+      {children}
+    </Link>
+  );
+}
+
 export function TopicGrid() {
   return (
     <>
@@ -150,34 +190,37 @@ export function TopicGrid() {
       <ul className="topic-grid">
         {TOPICS.map((topic) => {
           const active = topic.name === ACTIVE_TOPIC;
+          const href = TOPIC_HREFS[topic.name];
           return (
             <li className={`topic-tile${active ? ' topic-tile-active' : ''}`} key={topic.name}>
-              <span className="topic-name">{topic.name}</span>
-              <span
-                className="topic-ill"
-                aria-hidden="true"
-                style={
-                  {
-                    '--ill-top': topic.top,
-                    '--ill-h': topic.height,
-                    '--ill-ar': topic.aspect,
-                  } as CSSProperties
-                }
-              >
-                <img
-                  src={SPRITE}
-                  alt=""
+              <TileBody href={href}>
+                <span className="topic-name">{topic.name}</span>
+                <span
+                  className="topic-ill"
+                  aria-hidden="true"
                   style={
                     {
-                      '--crop-w': topic.crop.w,
-                      '--crop-h': topic.crop.h,
-                      '--crop-l': topic.crop.l,
-                      '--crop-t': topic.crop.t,
+                      '--ill-top': topic.top,
+                      '--ill-h': topic.height,
+                      '--ill-ar': topic.aspect,
                     } as CSSProperties
                   }
-                />
-              </span>
-              {active && <Pin />}
+                >
+                  <img
+                    src={SPRITE}
+                    alt=""
+                    style={
+                      {
+                        '--crop-w': topic.crop.w,
+                        '--crop-h': topic.crop.h,
+                        '--crop-l': topic.crop.l,
+                        '--crop-t': topic.crop.t,
+                      } as CSSProperties
+                    }
+                  />
+                </span>
+                {active && <Pin />}
+              </TileBody>
             </li>
           );
         })}

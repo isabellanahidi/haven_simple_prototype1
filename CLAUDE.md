@@ -79,7 +79,12 @@ A mobile-first, Reddit-style Q&A app. Prototype quality, but going in front of *
 
 These were cut on purpose to protect the deadline. **Do not add them back** without the user asking.
 
-- Communities / subreddits (there is **one global feed**)
+- ~~Communities / subreddits (there is **one global feed**)~~ → **one narrow
+  slice re-added Sep 17.** There is a single hard-coded topic, PCOS, at
+  `/t/pcos`, and a nullable `posts.topic` column that only accepts `'pcos'`.
+  There is still no topics table, no topic picker, and no second topic. The
+  home feed is still one global feed and still shows PCOS posts. See
+  section 26.
 - Downvotes (likes only)
 - Image or file uploads
 - Search
@@ -419,8 +424,15 @@ The convention started Sep 7, so it is not retrospective: the original schema be
 |---|---|---|
 | — | The original four tables, triggers and RLS below | yes, by hand |
 | `2026-09-07_nesting_and_comment_likes.sql` | Unlimited nesting + `comments.depth`, `comment_likes`, `comments.like_count` | **yes, Sep 7** (on the second attempt — see 4f) |
+| `2026-09-17_pcos_topic.sql` | `posts.topic` + its CHECK, and `posts_topic_pcos_idx` | **NOT YET — written Sep 17, to be pasted by hand** |
 
-**Section 7 below matches the live database.** Both migrations in the table above have been applied.
+**Section 7 below is written ahead of the live database on one point.** The
+first two rows above are applied; **`2026-09-17_pcos_topic.sql` is not**, so
+`posts.topic`, `posts_topic_check` and `posts_topic_pcos_idx` exist in this
+document and in the migration file but not yet in Postgres. Until it is pasted,
+`/t/pcos` shows *"column posts.topic does not exist"* and any post made from
+`/new?topic=pcos` fails on the same column. Nothing else regresses — the home
+feed, post detail and the composer without a preset never name the column.
 
 `supabase/probes/` sits alongside `supabase/migrations/` and holds the transaction-wrapped probes that were split out of that migration. **Probes never live in a migration file** — finding 4f explains what that cost.
 
@@ -565,13 +577,24 @@ create table public.posts (
   like_count     int  not null default 0,
   comment_count  int  not null default 0,
   hidden         boolean not null default false,  -- moderation kill switch
+  -- Added Sep 17. NULL = untagged, which is the normal case; the CHECK is the
+  -- real guard on the value and the only place the set of legal topics is
+  -- written down. This is ONE topic, not a topics system -- see section 26.
+  topic          text,
   created_at     timestamptz not null default now(),
   constraint title_len check (char_length(title) between 3 and 200),
-  constraint body_len check (char_length(body) <= 5000)
+  constraint body_len check (char_length(body) <= 5000),
+  constraint posts_topic_check check (topic is null or topic = 'pcos')
 );
 
 create index posts_feed_idx on public.posts (created_at desc) where hidden = false;
 create index posts_author_idx on public.posts (author_id, created_at desc);
+-- Added Sep 17. Matches the ordering /t/pcos uses (created_at desc), partial
+-- on the tag so it holds only PCOS posts. Deliberately no `and hidden = false`
+-- term, unlike posts_feed_idx: the topic query does not filter on hidden --
+-- RLS does, which is what lets an author still see their own hidden post --
+-- and adding the term would make the index unusable for that query.
+create index posts_topic_pcos_idx on public.posts (created_at desc) where topic = 'pcos';
 
 -- ------------------------------------------------------------
 -- COMMENTS (one level of nesting only)
@@ -860,7 +883,8 @@ The cascade on `handle_new_user` also removes its trigger on `auth.users`, which
 |---|---|---|
 | `/` | Home | Greeting, search field, topic grid. The newest 50 posts live in a **bottom-sheet drawer**, not on the page — see section 22. Each card: title, author display name + emoji, like count, comment count, relative timestamp. Tapping opens detail. |
 | `/p/:id` | Post detail | Full post, like button, **threaded** comments to any depth with per-comment likes, reply composer. See section 21. |
-| `/new` | Create post | Title + body, character counters matching the DB constraints, submit → redirect to the new post. |
+| `/t/pcos` | PCOS topic | The one topic page. Same card, same ordering, same `limit 50`, `.eq('topic', 'pcos')`. Readable signed out. A "New post" button opens `/new?topic=pcos`. See section 26. |
+| `/new` | Create post | Title + body, character counters matching the DB constraints, submit → redirect to the new post. Takes an optional `?topic=` preset. |
 | `/me` | Profile edit | Edit `display_name`, `bio`, `avatar_emoji`. Optionally list the user's own posts. |
 
 ### Suggested queries
@@ -1074,7 +1098,8 @@ In standalone mode there is no back gesture and no URL bar, so every route must 
 |---|---|
 | `/` | Home. Header carries the settings button; tab bar carries Home and Ask |
 | `/p/:id` | "← Feed", on both the loaded and not-found branches |
-| `/new` | "← Feed". On success it redirects to `/p/:id`, which has its own |
+| `/t/pcos` | "← Home" |
+| `/new` | "← Feed", or "← PCOS" when a topic is preset. On success it redirects to `/p/:id`, which has its own |
 | `/me` | "← Feed" |
 | `*` | "← Back to the feed" |
 

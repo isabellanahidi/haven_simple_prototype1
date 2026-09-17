@@ -1,8 +1,9 @@
 import { useState, type FormEvent } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useUserId } from '../lib/session';
 import { charLength } from '../lib/text';
+import { asTopic, topicLabel } from '../lib/topics';
 
 // Mirrors the CHECK constraints in CLAUDE.md section 7 exactly:
 //   constraint title_len check (char_length(title) between 3 and 200)
@@ -14,6 +15,21 @@ const BODY_MAX = 5000;
 export default function CreatePost() {
   const userId = useUserId();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+
+  // The topic preset, arriving as ?topic=pcos from the "New post" button on
+  // /t/pcos. A search param rather than router state on purpose: it survives a
+  // reload, and it survives the sign-in round trip, because SignIn rebuilds
+  // its destination from pathname + search + hash.
+  //
+  // VALIDATED, because anyone can type anything into a URL. asTopic returns
+  // null for anything that is not an allowed slug, so a junk preset posts
+  // untagged rather than blocking the composer or sending the database a value
+  // its CHECK constraint would reject. The constraint is still the real guard.
+  //
+  // No param at all is the ordinary case: /new reached from the tab bar posts
+  // untagged, and that has not changed.
+  const topic = asTopic(searchParams.get('topic'));
 
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
@@ -44,7 +60,11 @@ export default function CreatePost() {
 
     const { data, error: insertError } = await supabase
       .from('posts')
-      .insert({ author_id: userId, title: trimmedTitle, body: trimmedBody })
+      // topic is null when there is no valid preset, which is what the column
+      // means by untagged. .select('id').single() stays: per finding 4a a
+      // write filtered out by RLS comes back 200 with an empty result and no
+      // error, so the returned row is the only proof the insert did anything.
+      .insert({ author_id: userId, title: trimmedTitle, body: trimmedBody, topic })
       .select('id')
       .single();
 
@@ -61,11 +81,17 @@ export default function CreatePost() {
 
   return (
     <>
-      <Link className="back-link" to="/">
-        ← Feed
+      <Link className="back-link" to={topic ? `/t/${topic}` : '/'}>
+        ← {topic ? topicLabel(topic) : 'Feed'}
       </Link>
 
       <form className="composer" onSubmit={handleSubmit}>
+        {/* Says where the post will land, because the preset is otherwise
+            invisible — the URL is not on screen in standalone mode. Not a
+            picker: choosing a topic is not a thing this app does. */}
+        {topic && (
+          <p className="form-notice">Posting to {topicLabel(topic)}.</p>
+        )}
         <div className="field">
           <div className="field-head">
             <label className="field-label" htmlFor="post-title">

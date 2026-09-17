@@ -871,6 +871,35 @@ a {
   opacity: 0.6;
 }
 
+/* The one linked tile (PCOS/PMOS -> /t/pcos). Absolutely inset to the tile,
+   so the whole card is the tap target — far past the 44px minimum at every
+   width the two-column grid produces, and identical in box to the tile itself,
+   which is what keeps the absolutely positioned illustration and pin inside it
+   rendering exactly as they did when the tile held them directly.
+
+   The other six tiles have no link and are untouched: they stay inert list
+   items, per the header comment in TopicGrid.tsx. */
+.topic-tile-link {
+  position: absolute;
+  inset: 0;
+  display: block;
+  color: inherit;
+  text-decoration: none;
+  /* The tile is a coloured card; the default iOS flash over it reads as a
+     glitch rather than feedback. The scale below is the feedback. */
+  -webkit-tap-highlight-color: transparent;
+}
+
+.topic-tile-link:active {
+  transform: scale(0.98);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .topic-tile-link:active {
+    transform: none;
+  }
+}
+
 .topic-name {
   display: block;
   /* The frame's label baseline sits 20px down a 112px tile — 7.1% — so this
@@ -946,6 +975,34 @@ a {
   top: 59.53%;
   max-width: none;
   display: block;
+}
+
+/* ---------- topic page (/t/pcos) ----------
+   One topic, hand-placed — see CLAUDE.md section 26. The page reuses
+   .detail-title and the feed card wholesale, so this is only the header row
+   that holds the title and the New post button. */
+
+.topic-page-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-4);
+}
+
+/* .detail-title carries a bottom margin for a post body underneath it; here
+   the row owns the spacing. */
+.topic-page-title {
+  margin: 0;
+  min-width: 0;
+}
+
+/* .btn-primary is full-width by default, which is right for a form's submit
+   and wrong for a control sitting beside a heading. */
+.topic-page-new {
+  flex: none;
+  width: auto;
+  padding-inline: var(--sp-4);
 }
 
 /* ---------- bottom-sheet drawer ----------

@@ -3,6 +3,7 @@ import { SessionProvider } from './components/SessionProvider';
 import { RequireAuth } from './components/RequireAuth';
 import { TabBar } from './components/TabBar';
 import Feed from './routes/Feed';
+import TopicPcos from './routes/TopicPcos';
 import PostDetail from './routes/PostDetail';
 import CreatePost from './routes/CreatePost';
 import Profile from './routes/Profile';
@@ -34,6 +35,9 @@ export default function App() {
                   the anon role. */}
               <Route path="/" element={<Feed />} />
               <Route path="/p/:id" element={<PostDetail />} />
+              {/* A literal path, not /t/:slug. PCOS is the only topic and
+                  there is no topics table — see CLAUDE.md section 26. */}
+              <Route path="/t/pcos" element={<TopicPcos />} />
               <Route path="/signin" element={<SignIn />} />
 
               {/* Writing needs a user. */}
