@@ -1095,19 +1095,27 @@ Until then Add to Home Screen still works and standalone mode still works; iOS j
 
 In standalone mode there is no back gesture and no URL bar, so every route must be leavable from within the page. Walked and confirmed:
 
+**Superseded Sep 28 on the labels: every back link is now the same unlabelled
+circular button**, `<BackButton>`, positioned into the header band opposite the
+settings button. The destinations below are unchanged; only the copy is gone.
+
 | Route | Way out |
 |---|---|
 | `/` | Home. Header carries the settings button; tab bar carries Home and Ask |
-| `/p/:id` | "← Feed", on both the loaded and not-found branches |
-| `/t/pcos` | "← Home" |
+| `/p/:id` | Back button to `/`, on both the loaded and not-found branches |
+| `/t/pcos` | Back button to `/` |
 | `/messages` | **The tab bar only** — no back link, on purpose. See section 27. |
-| `/new` | "← Feed", or "← PCOS" when a topic is preset. On success it redirects to `/p/:id`, which has its own |
-| `/me` | "← Feed" |
-| `*` | "← Back to the feed" |
+| `/new` | Back button to `/`, or to `/t/pcos` when a topic is preset. On success it redirects to `/p/:id`, which has its own |
+| `/me` | Back button to `/` |
+| `*` | Back button to `/` |
 
 **The real guarantee is structural, not per-route:** the header and the tab bar live in `App.tsx` *outside* both `<Routes>` and `<SessionProvider>`'s children, so they render on every route and through every loading and error state — including the three `ErrorState` screens, which have no back link of their own. **Keep them outside.** Moving them inside would strand a user on an error screen with no way to navigate.
 
-**The per-route back links are now redundant, and are a candidate for removal.** As of section 16 the tab bar reaches `/` from every route, which is exactly what each "← Feed" link does. They were deliberately left in place during the shell pass, which was scoped to the shell alone. Removing them is a content-pass decision, and worth taking as one change across all five routes rather than screen by screen — `back-link` appears in `PostDetail`, `Profile`, `NotFound`, `CreatePost`, and `SignIn`. Note that `/p/:id` is the one case with an argument for keeping it: a shared post link is the one way into the app that has no history to go back to, and "← Feed" reads as more deliberate there than tapping Home.
+**The per-route back links are now redundant, and are a candidate for removal.** As of section 16 the tab bar reaches `/` from every route, which is exactly what each back button does. They were deliberately left in place during the shell pass, which was scoped to the shell alone. Removing them is a content-pass decision, and worth taking as one change across all six routes rather than screen by screen — as of Sep 28 they are one component, `src/components/BackButton.tsx`, used by `PostDetail`, `TopicPcos`, `Profile`, `NotFound`, `CreatePost`, and `SignIn`, so it is one deletion and six call sites. Note that `/p/:id` is the one case with an argument for keeping it: a shared post link is the one way into the app that has no history to go back to, and a back control reads as more deliberate there than tapping Home.
+
+**The button is aligned to the settings button, not to the page, and that is what makes it a shell element in spirit while staying per-route.** `.back-link` is absolutely positioned out of `.app-main` and up into the header band, deriving its offset from `--header-h` and `--sp-4` — the same tokens `.app-header` and `.icon-btn` use — so it follows the header if either is retuned. The inset cancels out of the vertical term, so there is no `env()` in it. Two things it depends on: `.app-main` is its containing block (`position: relative`), and the asset's 46px box holds a 40px circle at `(3, 2)`, which is where the 3px and 22px terms in the rule come from. Measured at 393x852: both circles at `top: 6.5`, centre `y = 26.5`, each inset 16px from its own edge.
+
+**The glyph is an `<img>`, never inlined.** `src/assets/back-button.svg` carries SVG filter ids for its drop shadow; inlined on more than one route — or twice on one, as `PostDetail`'s two branches would do — those ids collide in the one document. An `<img>` gives each instance its own document.
 
 One acknowledged gap: the env-var guard in `main.tsx` renders before `App` is imported, so it has no header. In standalone mode that screen is a dead end — but it only appears when the deployment has no Supabase credentials, when there is nowhere useful to navigate to anyway.
 
@@ -2857,6 +2865,101 @@ present"* — including `vite.config.ts` and files nothing has touched.
 **`npx eslint src/` is clean**, and so is `npm run build`. The fix is to delete
 that stray directory or add it to `.gitignore` plus the ESLint ignores;
 untouched here because it is not this task's to change.
+
+### Two design additions (Sep 28)
+
+Recorded here rather than in a section of their own, because both extend the
+decision this section makes — a hand-placed addition to the grid, and a screen
+that is drawn rather than derived from data. **Neither touches the schema, a
+query, or the data model, and neither is a topics system.**
+
+#### A "Webinar" tile, linking to `/messages`
+
+An eighth tile in `TopicGrid`, styled like the others and linking to
+`/messages` — so the grid and the Messages tab point at the same placeholder
+(section 27). **It is not a topic**: there is no `'webinar'` value in
+`posts_topic_check`, no route under `/t/`, and nothing queries it. It is a
+tile-shaped link to a screen that already existed.
+
+Three things it changed, all of them in `TopicGrid.tsx`:
+
+- **`ACTIVE_TOPIC` split into `ACTIVE_TOPICS` and `PINNED_TOPIC`.** Section 23
+  folded the pin into the colour flag and noted that the line to split was the
+  day the two had to diverge. **That day arrived here**: Webinar renders in
+  full colour, and the frame pins exactly one topic, which is not Webinar. The
+  two constants are now independent.
+- **The illustration became optional** (`Topic.ill`). The sprite sheet
+  `haven-topics.png` holds seven crops and Webinar is not one of them, so the
+  tile renders as its label on the brand fill. **Giving it another topic's crop
+  would have been worse than nothing** — the art is specific, so a wrong
+  drawing reads as a bug rather than as decoration. If a Webinar illustration
+  is ever exported, it is one more entry in `TOPICS` and a new sprite.
+- **`TOPIC_HREFS` has two entries.** Still a lookup rather than an `href` field
+  on every `Topic`, for the reason this section already gives: six tiles have
+  nowhere to go, and an optional field on all eight reads as an invitation to
+  fill it in.
+
+**The six inert tiles and the disabled search field are untouched.** Wiring
+either up is still adding a cut feature — ask first.
+
+#### The welcome screen
+
+A full-screen overlay reading *"Welcome — we are here to support each other."*
+`src/components/WelcomeOverlay.tsx`, mounted once in `App.tsx` **outside
+`<Routes>`**, so a route change cannot restart it.
+
+| | |
+|---|---|
+| Timing | ~2s opaque, then a 400ms fade, then **unmounted** |
+| Reduced motion | No fade at all — one 2.2s hold, then unmounted |
+| Taps | Blocked while opaque; `pointer-events: none` from the moment the fade starts, so the 400ms of fading is not 400ms of swallowed taps |
+| Shown | Once per visit, plus once more immediately after an account is created |
+| Colour | `--button` with `--on-button` (7.61:1). **No new hex.** |
+| Height | `100dvh`, with the safe-area insets as padding |
+
+**Once per visit is `sessionStorage`, and every access is wrapped in
+try/catch.** A session store is exactly what "a visit" means, and it clears
+itself with the tab. Storage throws outright in a private window with site data
+blocked (the same family of failure section 6c records for localStorage), so
+**a throwing store fails toward showing the overlay** — two seconds of a
+greeting is a far cheaper wrong answer than a white page on a phone.
+
+**A new account replays it**, via `replayWelcome()` in `src/lib/welcome.ts`,
+called from `SignIn` right after `verifyOtp` returns a session — before the
+optional-extras step, so it plays whether or not the person goes on to add a
+name or a password.
+
+**"Is this a new account?" is decided from two server timestamps and their
+difference only** — `last_sign_in_at` minus `created_at`, under an hour, with
+a missing `last_sign_in_at` counting as new. `signInWithOtp` creates the
+`auth.users` row when it mails the code, so a brand-new account's two stamps
+are a code-entry apart while a returning one's are as far apart as the account
+is old. **Deliberately not compared against `Date.now()`:** that would break on
+a phone whose clock is wrong, and this way the client's clock never enters it.
+
+##### The trap worth keeping
+
+**An effect that ran the whole sequence once on mount hangs under
+`StrictMode`, and it hung here before it was caught.** React mounts, tears down
+and remounts in development: the cleanup cleared the timers, and the second run
+read the `sessionStorage` flag *the first run had just written*, concluded the
+overlay had already been shown, and started nothing. The overlay then sat on
+screen forever.
+
+**The fix is structural — the timer effect is keyed on the phase, not on
+mount.** Each phase derives its own timer, so a cleanup and re-run simply
+re-arms the timer for the phase the component is already in. The initial
+decision lives in the `useState` lazy initializer, which is a pure read, so it
+survives the remount. Any future "show something once" overlay wants the same
+shape.
+
+Verified in the running app at 393x852: `visible` at 0ms, `fading` at 2025ms,
+gone at 2430ms; under `prefers-reduced-motion: reduce` the transition is `0s`
+and it never enters the fading phase. A second load in the same session shows
+nothing, and `document.elementFromPoint` at the centre of the screen returns
+the page underneath once it is gone.
+
+---
 
 ---
 

@@ -18,18 +18,19 @@ import { PCOS } from '../lib/topics';
  *   - the search input is `disabled`, styled to match the frame rather than
  *     to take the browser's grey disabled treatment. It does not focus, so it
  *     cannot raise the iOS keyboard over a field that would ignore the typing.
- *   - six of the seven tiles are list items, not buttons or links. They look
+ *   - six of the eight tiles are list items, not buttons or links. They look
  *     tappable because the frame draws them that way; they are not announced
  *     as controls, and they have no :active state, so nothing promises a
  *     response that will not arrive.
  *
- * THE ONE EXCEPTION IS PCOS/PMOS, which links to /t/pcos. That is a narrow,
- * deliberate re-add of the cut feature, decided in CLAUDE.md section 26 — one
- * topic, hand-placed, with no topics table behind it. The <li> is kept and the
- * link goes INSIDE it, so the grid stays a list of tiles rather than a list of
- * links, and the six inert tiles are unchanged.
+ * THE TWO EXCEPTIONS ARE PCOS/PMOS, which links to /t/pcos, and Webinar, which
+ * links to /messages. Both are narrow, hand-placed additions recorded in
+ * CLAUDE.md section 26, with no topics table behind either — and Webinar is
+ * not a topic feed at all, it points at the Messages placeholder. In both the
+ * <li> is kept and the link goes INSIDE it, so the grid stays a list of tiles
+ * rather than a list of links, and the six inert tiles are unchanged.
  *
- * Wiring up the search field, or a second tile, means adding a feature that
+ * Wiring up the search field, or another tile, means adding a feature that
  * was cut. Ask first.
  * ---------------------------------------------------------------------------
  *
@@ -46,36 +47,60 @@ const SPRITE = '/img/haven-topics.png';
 
 type Topic = {
   name: string;
-  /** Illustration box, as a share of the tile: top edge, height, aspect ratio. */
-  top: string;
-  height: string;
-  aspect: string;
-  /** The crop: the <img>'s size and offset, as percentages of that box. */
-  crop: { w: string; h: string; l: string; t: string };
+  /**
+   * The illustration, when the sprite sheet holds one. Omitted for Webinar,
+   * which is not in the frame and so has no art to crop — the tile renders as
+   * its label on the brand fill rather than showing some other topic's
+   * drawing. See the note on WEBINAR below.
+   */
+  ill?: {
+    /** Illustration box, as a share of the tile: top edge, height, aspect ratio. */
+    top: string;
+    height: string;
+    aspect: string;
+    /** The crop: the <img>'s size and offset, as percentages of that box. */
+    crop: { w: string; h: string; l: string; t: string };
+  };
 };
 
-/**
- * THE ACTIVE TILE, AND THE ONLY PLACE IT IS NAMED.
- *
- * One topic renders in full colour and carries the pin; every other tile is
- * greyscale at 60%. Both facts hang off this one constant and the single
- * `topic-tile-active` class it sets, so moving the state to another topic —
- * or to something a person actually chose — is one edit here.
- *
- * The pin used to be its own per-topic flag. It is folded in because the frame
- * agrees the two are the same tile, and two flags that must always match are
- * one flag with a way to go wrong.
- */
-const ACTIVE_TOPIC = 'PCOS/PMOS';
+/** The frame's one linked topic, and the only place its name is written. */
+const PCOS_TILE = 'PCOS/PMOS';
 
 /**
- * The one tile that goes somewhere, keyed by the same name. Deliberately a
- * lookup with a single entry rather than a `href` field on every Topic: six of
- * the seven have nowhere to go, and an optional field on all of them reads as
- * an invitation to fill it in.
+ * WEBINAR is not in the Figma frame. It is an added tile (CLAUDE.md section
+ * 26) that links to /messages, which is where the Messages tab's "Stay tuned
+ * for webinar" placeholder lives — so the grid and the tab point at the same
+ * screen.
+ *
+ * It has no entry in the sprite sheet and gets no illustration. Giving it
+ * another topic's crop would be worse than a plain tile: the art is specific,
+ * and a wrong drawing reads as a bug rather than as decoration.
+ */
+const WEBINAR_TILE = 'Webinar';
+
+/**
+ * THE TILES THAT RENDER IN FULL COLOUR. Every other tile is greyscale at 60%.
+ *
+ * This used to be one constant that drove both the colour and the pin, with a
+ * note that the line to split was the day the two had to diverge. That day is
+ * here: Webinar is a live tile and renders in colour, but the frame pins
+ * exactly one topic and Webinar is not it. So the pin has its own constant
+ * below, and the two no longer have to agree.
+ */
+const ACTIVE_TOPICS = new Set([PCOS_TILE, WEBINAR_TILE]);
+
+/** The single pinned tile the frame draws. Colour is ACTIVE_TOPICS' job. */
+const PINNED_TOPIC = PCOS_TILE;
+
+/**
+ * The tiles that go somewhere, keyed by the same name. Deliberately a lookup
+ * with two entries rather than a `href` field on every Topic: six of the eight
+ * have nowhere to go, and an optional field on all of them reads as an
+ * invitation to fill it in.
  */
 const TOPIC_HREFS: Record<string, string> = {
-  'PCOS/PMOS': `/t/${PCOS}`,
+  [PCOS_TILE]: `/t/${PCOS}`,
+  [WEBINAR_TILE]: '/messages',
 };
 
 /**
@@ -91,54 +116,70 @@ const TOPIC_HREFS: Record<string, string> = {
  */
 const TOPICS: Topic[] = [
   {
-    name: 'PCOS/PMOS',
-    top: '39.29%',
-    height: '46.43%',
-    aspect: '94 / 52',
-    crop: { w: '261.22%', h: '770.64%', l: '-32.65%', t: '-86.24%' },
+    name: PCOS_TILE,
+    ill: {
+      top: '39.29%',
+      height: '46.43%',
+      aspect: '94 / 52',
+      crop: { w: '261.22%', h: '770.64%', l: '-32.65%', t: '-86.24%' },
+    },
   },
   {
     name: 'Endometriosis',
-    top: '38.39%',
-    height: '46.43%',
-    aspect: '94 / 52',
-    crop: { w: '261.22%', h: '770.64%', l: '-30.53%', t: '-274.08%' },
+    ill: {
+      top: '38.39%',
+      height: '46.43%',
+      aspect: '94 / 52',
+      crop: { w: '261.22%', h: '770.64%', l: '-30.53%', t: '-274.08%' },
+    },
   },
   {
     name: 'Adenomyosis',
-    top: '41.08%',
-    height: '46.43%',
-    aspect: '94 / 52',
-    crop: { w: '261.22%', h: '770.64%', l: '-35.75%', t: '-444.41%' },
+    ill: {
+      top: '41.08%',
+      height: '46.43%',
+      aspect: '94 / 52',
+      crop: { w: '261.22%', h: '770.64%', l: '-35.75%', t: '-444.41%' },
+    },
   },
   {
     name: 'Pregnancy',
-    top: '38.40%',
-    height: '52.24%',
-    aspect: '84.6 / 58.5',
-    crop: { w: '261.22%', h: '616.51%', l: '-178.69%', t: '-52.25%' },
+    ill: {
+      top: '38.40%',
+      height: '52.24%',
+      aspect: '84.6 / 58.5',
+      crop: { w: '261.22%', h: '616.51%', l: '-178.69%', t: '-52.25%' },
+    },
   },
   {
     name: 'Menopause',
-    top: '33.94%',
-    height: '52.24%',
-    aspect: '84.6 / 58.5',
-    crop: { w: '261.22%', h: '616.51%', l: '-179.90%', t: '-197.41%' },
+    ill: {
+      top: '33.94%',
+      height: '52.24%',
+      aspect: '84.6 / 58.5',
+      crop: { w: '261.22%', h: '616.51%', l: '-179.90%', t: '-197.41%' },
+    },
   },
   {
     name: 'Hysterectomy',
-    top: '29.47%',
-    height: '58.04%',
-    aspect: '85 / 65',
-    crop: { w: '260%', h: '554.86%', l: '-175.93%', t: '-303.18%' },
+    ill: {
+      top: '29.47%',
+      height: '58.04%',
+      aspect: '85 / 65',
+      crop: { w: '260%', h: '554.86%', l: '-175.93%', t: '-303.18%' },
+    },
   },
   {
     name: 'General Health',
-    top: '33.94%',
-    height: '52.24%',
-    aspect: '84.6 / 58.5',
-    crop: { w: '261.22%', h: '616.51%', l: '-166.94%', t: '-515.06%' },
+    ill: {
+      top: '33.94%',
+      height: '52.24%',
+      aspect: '84.6 / 58.5',
+      crop: { w: '261.22%', h: '616.51%', l: '-166.94%', t: '-515.06%' },
+    },
   },
+  // Added tile, not in the frame, and the only one with no illustration.
+  { name: WEBINAR_TILE },
 ];
 
 /** The pin, composed from the frame's two exported vectors at the frame's own
@@ -189,37 +230,39 @@ export function TopicGrid() {
 
       <ul className="topic-grid">
         {TOPICS.map((topic) => {
-          const active = topic.name === ACTIVE_TOPIC;
+          const active = ACTIVE_TOPICS.has(topic.name);
           const href = TOPIC_HREFS[topic.name];
           return (
             <li className={`topic-tile${active ? ' topic-tile-active' : ''}`} key={topic.name}>
               <TileBody href={href}>
                 <span className="topic-name">{topic.name}</span>
-                <span
-                  className="topic-ill"
-                  aria-hidden="true"
-                  style={
-                    {
-                      '--ill-top': topic.top,
-                      '--ill-h': topic.height,
-                      '--ill-ar': topic.aspect,
-                    } as CSSProperties
-                  }
-                >
-                  <img
-                    src={SPRITE}
-                    alt=""
+                {topic.ill && (
+                  <span
+                    className="topic-ill"
+                    aria-hidden="true"
                     style={
                       {
-                        '--crop-w': topic.crop.w,
-                        '--crop-h': topic.crop.h,
-                        '--crop-l': topic.crop.l,
-                        '--crop-t': topic.crop.t,
+                        '--ill-top': topic.ill.top,
+                        '--ill-h': topic.ill.height,
+                        '--ill-ar': topic.ill.aspect,
                       } as CSSProperties
                     }
-                  />
-                </span>
-                {active && <Pin />}
+                  >
+                    <img
+                      src={SPRITE}
+                      alt=""
+                      style={
+                        {
+                          '--crop-w': topic.ill.crop.w,
+                          '--crop-h': topic.ill.crop.h,
+                          '--crop-l': topic.ill.crop.l,
+                          '--crop-t': topic.ill.crop.t,
+                        } as CSSProperties
+                      }
+                    />
+                  </span>
+                )}
+                {topic.name === PINNED_TOPIC && <Pin />}
               </TileBody>
             </li>
           );

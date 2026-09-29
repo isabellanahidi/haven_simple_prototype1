@@ -15,6 +15,7 @@ import { useRecoverStaleSession } from '../lib/authRedirect';
 import { EmptyState, ErrorState, Loading } from '../components/States';
 import { SetPasswordForm } from '../components/SetPasswordForm';
 import { PersonalNameForm } from '../components/PersonalNameForm';
+import { BackButton } from '../components/BackButton';
 
 type Saved = { display_name: string; bio: string; avatar_emoji: string };
 
@@ -179,9 +180,7 @@ export default function Profile() {
 
   return (
     <>
-      <Link className="back-link" to="/">
-        ← Feed
-      </Link>
+      <BackButton to="/" />
 
       <form className="composer" onSubmit={handleSubmit}>
         <div className="field">

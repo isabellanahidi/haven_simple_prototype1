@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useUserId } from '../lib/session';
 import { buildCommentTree, commentErrorMessage, COMMENT_LIMIT } from '../lib/comments';
@@ -10,6 +10,7 @@ import { CommentThread, type LocalComment } from '../components/CommentThread';
 import { CommentComposer, LockedComposer } from '../components/CommentComposer';
 import { clearStaleSession, useSignInRedirect } from '../lib/authRedirect';
 import { EmptyState, ErrorState, Loading } from '../components/States';
+import { BackButton } from '../components/BackButton';
 
 // depth and like_count come straight from the row.
 //
@@ -193,9 +194,7 @@ export default function PostDetail() {
   if (notFound) {
     return (
       <>
-        <Link className="back-link" to="/">
-          ← Feed
-        </Link>
+        <BackButton to="/" />
         <EmptyState title="Post not found" body="It may have been deleted, or the link is wrong." />
       </>
     );
@@ -205,9 +204,7 @@ export default function PostDetail() {
 
   return (
     <>
-      <Link className="back-link" to="/">
-        ← Feed
-      </Link>
+      <BackButton to="/" />
 
       <article className="detail-card">
         <Byline author={author(post.profiles)} createdAt={post.created_at} lead />

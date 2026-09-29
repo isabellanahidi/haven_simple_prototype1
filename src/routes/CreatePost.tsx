@@ -1,9 +1,10 @@
 import { useState, type FormEvent } from 'react';
-import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useUserId } from '../lib/session';
 import { charLength } from '../lib/text';
 import { asTopic, topicLabel } from '../lib/topics';
+import { BackButton } from '../components/BackButton';
 
 // Mirrors the CHECK constraints in CLAUDE.md section 7 exactly:
 //   constraint title_len check (char_length(title) between 3 and 200)
@@ -81,9 +82,7 @@ export default function CreatePost() {
 
   return (
     <>
-      <Link className="back-link" to={topic ? `/t/${topic}` : '/'}>
-        ← {topic ? topicLabel(topic) : 'Feed'}
-      </Link>
+      <BackButton to={topic ? `/t/${topic}` : '/'} />
 
       <form className="composer" onSubmit={handleSubmit}>
         {/* Says where the post will land, because the preset is otherwise

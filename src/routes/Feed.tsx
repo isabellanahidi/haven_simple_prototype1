@@ -106,10 +106,10 @@ export default function Feed() {
       <TopicGrid />
 
       {/* The frame labels this pill "New Discussions" in both drawer states.
-          The app says "General discussions" instead, to sit alongside the PCOS
+          The app says "General Discussions" instead, to sit alongside the PCOS
           topic page as the other, untagged half of the same one feed. The PCOS
           page's own "New post" button is a different control and unchanged. */}
-      <BottomSheet title="General discussions">
+      <BottomSheet title="General Discussions">
         <FeedBody posts={posts} likedIds={likedIds} error={error} />
       </BottomSheet>
     </div>

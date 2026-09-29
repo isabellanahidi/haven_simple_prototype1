@@ -6,6 +6,8 @@ import { PCOS, topicLabel } from '../lib/topics';
 import { type FeedPost } from '../lib/types';
 import { PostList } from '../components/PostList';
 import { EmptyState, ErrorState, SkeletonCards } from '../components/States';
+import { BackButton } from '../components/BackButton';
+import pcosTitle from '../assets/pcos-title.svg';
 
 /**
  * /t/pcos — the one topic page.
@@ -77,12 +79,16 @@ export default function TopicPcos() {
 
   return (
     <>
-      <Link className="back-link" to="/">
-        ← Home
-      </Link>
+      <BackButton to="/" />
 
       <div className="topic-page-head">
-        <h1 className="detail-title topic-page-title">{topicLabel(PCOS)}</h1>
+        {/* The design's own wordmark, at its natural 76x22. The <h1> stays,
+            so the page still has a heading; the alt text carries the word, so
+            it is still announced as "PCOS". topicLabel() is no longer the
+            visible copy but remains the single source of that string. */}
+        <h1 className="detail-title topic-page-title">
+          <img className="topic-page-wordmark" src={pcosTitle} alt={topicLabel(PCOS)} />
+        </h1>
         {/* Signed out this still renders and still reads as available —
             RequireAuth on /new sends the person to /signin carrying the
             destination, query string included, so they land back in the

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
+import type { User } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import { useSession } from '../lib/session';
 import { authErrorMessage, retryAfterSeconds } from '../lib/authErrors';
@@ -9,11 +10,43 @@ import type { SignInState } from '../lib/authRedirect';
 import { SetPasswordForm } from '../components/SetPasswordForm';
 import { PersonalNameForm } from '../components/PersonalNameForm';
 import { Loading } from '../components/States';
+import { BackButton } from '../components/BackButton';
+import { replayWelcome } from '../lib/welcome';
 
 /** Supabase's default is one OTP request per 60s per user. */
 const RESEND_COOLDOWN = 60;
 /** `{{ .Token }}` renders a 6-digit code. */
 const CODE_LENGTH = 6;
+
+/**
+ * How long after an account is created a sign-in still counts as that
+ * account's first. One hour is the life of an OTP code, so it is the widest
+ * gap that can separate "signInWithOtp created this row" from "the code it
+ * mailed was entered".
+ */
+const NEW_ACCOUNT_WINDOW_MS = 60 * 60 * 1000;
+
+/**
+ * Was this account created by the sign-in that just completed?
+ *
+ * BOTH TIMESTAMPS COME FROM THE SERVER, and only their difference is used, so
+ * this is immune to a phone whose clock is wrong — which a comparison against
+ * Date.now() would not be. signInWithOtp creates the auth.users row when it
+ * mails the code, so a brand-new account's created_at and last_sign_in_at are
+ * a code-entry apart; a returning account's are as far apart as the account is
+ * old.
+ *
+ * No last_sign_in_at means there has never been one, which is the newest an
+ * account gets.
+ */
+function isNewAccount(user: User | null): boolean {
+  if (!user?.created_at) return false;
+  if (!user.last_sign_in_at) return true;
+  const created = Date.parse(user.created_at);
+  const signedIn = Date.parse(user.last_sign_in_at);
+  if (Number.isNaN(created) || Number.isNaN(signedIn)) return false;
+  return signedIn - created < NEW_ACCOUNT_WINDOW_MS;
+}
 
 type Step = 'email' | 'code' | 'optional-extras';
 
@@ -202,6 +235,12 @@ export default function SignIn() {
 
     setBusy(false);
 
+    // A new account gets the welcome screen once more, even if this visit has
+    // already seen it. Fired here rather than after the redirect so it plays
+    // over the optional-extras step too — the account exists from this point
+    // on, whether or not they go on to add a name or a password.
+    if (isNewAccount(data.user)) replayWelcome();
+
     // Offer each optional extra only to accounts that don't have it yet.
     // Decided from the user this call just returned rather than from context
     // state, so it can't race the provider catching up.
@@ -245,9 +284,7 @@ export default function SignIn() {
 
   return (
     <>
-      <Link className="back-link" to="/">
-        ← Feed
-      </Link>
+      <BackButton to="/" />
 
       {step === 'email' && (
         <form className="composer" onSubmit={handleEmailSubmit}>

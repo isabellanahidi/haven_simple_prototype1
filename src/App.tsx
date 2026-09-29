@@ -2,6 +2,7 @@ import { BrowserRouter, Link, Route, Routes } from 'react-router-dom';
 import { SessionProvider } from './components/SessionProvider';
 import { RequireAuth } from './components/RequireAuth';
 import { TabBar } from './components/TabBar';
+import { WelcomeOverlay } from './components/WelcomeOverlay';
 import Feed from './routes/Feed';
 import TopicPcos from './routes/TopicPcos';
 import Messages from './routes/Messages';
@@ -16,6 +17,11 @@ export default function App() {
     <BrowserRouter>
       <SessionProvider>
         <div className="app">
+          {/* Outside <Routes> so a route change can't restart it, and it does
+              not depend on which screen the visit began on. It removes itself
+              from the DOM once it has faded. */}
+          <WelcomeOverlay />
+
           {/* Header and tab bar sit outside <Routes>, so navigation survives
               every route and every loading and error state. See CLAUDE.md
               section 12. */}

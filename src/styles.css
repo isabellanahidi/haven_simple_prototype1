@@ -251,6 +251,9 @@ a {
 }
 
 .app-main {
+  /* The containing block for .back-link, which is positioned up into the
+     header band. Nothing else in here is absolutely positioned. */
+  position: relative;
   flex: 1;
   width: 100%;
   max-width: var(--content-max);
@@ -606,16 +609,62 @@ a {
   word-break: break-word;
 }
 
-/* ---------- back link ---------- */
+/* ---------- back button ---------- */
 
+/* The leading counterpart to the header's settings button, and aligned to it
+   rather than to the page.
+
+   IT IS NOT IN THE PAGE FLOW, and it cannot be: the header lives outside
+   <Routes> in App.tsx while the back button is per-route, so the only way for
+   the two to share a centre line is to position one into the other's band.
+   .app-header already reserves an empty 40px leading grid column for exactly
+   this slot.
+
+   VERTICAL — every term below comes from the tokens .app-header and .icon-btn
+   already use, so the button follows the header if --header-h is ever retuned:
+
+     .app-header is `height: calc(var(--header-h) + env(safe-area-inset-top))`
+     with `padding-top: env(safe-area-inset-top)` and `align-items: center`,
+     so its 40px circle is centred in the --header-h band under the inset.
+     .app-main is the next flex child, so its own top edge sits exactly
+     --header-h below the top of that band -- THE INSET CANCELS, which is why
+     there is no env() term here.
+
+       band centre, from .app-main's top  =  -(--header-h / 2)   =  -26.5px
+
+     The asset is a 46px box whose circle -- the same 40px circle .icon-btn
+     draws -- spans y=2..41.99, so its centre is at y=22, not 23: the box is
+     padded asymmetrically because the SVG filter bleeds further below the
+     shape than above it. So the box top sits 22px above that centre line.
+
+   HORIZONTAL -- mirrored from the same padding. .app-header's inline padding
+   is --sp-4, so the settings circle's outer edge is --sp-4 from the column
+   edge. .app-main's border box starts at that same column edge (its --sp-3
+   padding is inside it), and the asset's circle starts 3px into its box, so
+   --sp-4 less that 3px of shadow padding lands the two circles symmetrically.
+
+   Tap target: the 46px box clears the 44px minimum on its own, so unlike
+   .icon-btn this needs no ::after to grow it. */
 .back-link {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--sp-1);
-  min-height: var(--tap);
-  padding-right: var(--sp-2);
-  color: var(--accent);
-  font-size: var(--fs-base);
+  position: absolute;
+  top: calc(var(--header-h) / -2 - 22px);
+  left: calc(var(--sp-4) - 3px);
+  display: block;
+  width: 46px;
+  height: 46px;
+  /* The asset is a white circle with its own drop shadow; the default iOS
+     flash on top of it reads as a smudge. */
+  -webkit-tap-highlight-color: transparent;
+}
+
+.back-link:active {
+  opacity: 0.85;
+}
+
+.back-link-glyph {
+  width: 46px;
+  height: 46px;
+  display: block;
 }
 
 /* ---------- states ---------- */
@@ -861,8 +910,8 @@ a {
   overflow: hidden;
 }
 
-/* Every tile but the active one is drained of colour. One selector, driven by
-   the single ACTIVE_TOPIC constant in TopicGrid.tsx.
+/* Every tile but an active one is drained of colour. One selector, driven by
+   the ACTIVE_TOPICS set in TopicGrid.tsx.
 
    filter and opacity are on the tile itself, so the brand fill, the white
    label, the illustration and the shadow all fade together — the whole card
@@ -872,7 +921,8 @@ a {
   opacity: 0.6;
 }
 
-/* The one linked tile (PCOS/PMOS -> /t/pcos). Absolutely inset to the tile,
+/* The linked tiles (PCOS/PMOS -> /t/pcos, Webinar -> /messages). Absolutely
+   inset to the tile,
    so the whole card is the tap target — far past the 44px minimum at every
    width the two-column grid produces, and identical in box to the tile itself,
    which is what keeps the absolutely positioned illustration and pin inside it
@@ -1031,6 +1081,15 @@ a {
 .topic-page-title {
   margin: 0;
   min-width: 0;
+}
+
+/* The wordmark at its exported size. `display: block` drops the inline
+   baseline gap under it, which would otherwise make the heading taller than
+   the art and throw the row's centring off by a few px. */
+.topic-page-wordmark {
+  width: 76px;
+  height: 22px;
+  display: block;
 }
 
 /* .btn-primary is full-width by default, which is right for a form's submit
@@ -1620,4 +1679,61 @@ a {
 .thread-toggle-caret {
   font-size: var(--fs-sm);
   line-height: 1;
+}
+
+/* ---------- welcome overlay ----------
+   A full-screen greeting on the first render of a visit, and again right after
+   an account is created. See src/components/WelcomeOverlay.tsx.
+
+   100dvh, not 100vh: with Safari's URL bar showing, 100vh overshoots the
+   viewport and pushes the centred line below the true middle — the same reason
+   .messages-page composes from 100dvh. The safe-area insets are padding rather
+   than a subtraction here, because this covers the whole screen by design and
+   only its text needs to stay clear of the notch and the home indicator.
+
+   Colours are --button and --on-button, already in the palette: white on the
+   brand burgundy measures 7.61:1. */
+.welcome {
+  position: fixed;
+  inset: 0;
+  z-index: 100; /* above the tab bar (20) and the drawer */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100dvh;
+  padding: calc(var(--sp-6) + env(safe-area-inset-top)) var(--sp-5)
+    calc(var(--sp-6) + env(safe-area-inset-bottom));
+  background: var(--button);
+  opacity: 1;
+  /* Must match FADE_MS in WelcomeOverlay.tsx. */
+  transition: opacity 400ms ease;
+}
+
+/* Taps stop being intercepted the moment the fade starts, not when it ends:
+   the overlay is on its way out and already partly see-through, so anything
+   under it should be usable. Once the fade finishes the element is unmounted
+   entirely, so nothing is left behind either way. */
+.welcome-fading {
+  opacity: 0;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* No fade. The component drops the fading phase too and simply unmounts
+     after a shorter hold, so this only guarantees nothing animates if the two
+     ever disagree. */
+  .welcome {
+    transition: none;
+  }
+}
+
+.welcome-text {
+  margin: 0;
+  max-width: 20ch;
+  text-align: center;
+  text-wrap: balance;
+  font-size: var(--fs-xl);
+  line-height: 1.4;
+  font-weight: 700;
+  color: var(--on-button);
 }
