@@ -71,8 +71,14 @@ export default function Feed() {
           // via author_id, and many-to-many through likes. A bare
           // `profiles(...)` is ambiguous and PostgREST rejects it (PGRST201).
           .select(
-            'id, title, body, like_count, comment_count, created_at, profiles!posts_author_id_fkey(display_name, avatar_emoji)',
+            'id, author_id, title, body, like_count, comment_count, created_at, deleted_at, profiles!posts_author_id_fkey(display_name, avatar_emoji)',
           )
+          // Deleted posts never reach the feed. A client-side filter is only
+          // honest here BECAUSE the delete erased the row's content in the
+          // database — there is nothing left for this filter to fail to hide.
+          // /p/:id deliberately does not filter: a shared link still resolves
+          // to the tombstone and its replies.
+          .is('deleted_at', null)
           .order('created_at', { ascending: false })
           .limit(50),
         userId ? supabase.from('likes').select('post_id').eq('user_id', userId) : null,

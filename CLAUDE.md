@@ -424,15 +424,22 @@ The convention started Sep 7, so it is not retrospective: the original schema be
 |---|---|---|
 | — | The original four tables, triggers and RLS below | yes, by hand |
 | `2026-09-07_nesting_and_comment_likes.sql` | Unlimited nesting + `comments.depth`, `comment_likes`, `comments.like_count` | **yes, Sep 7** (on the second attempt — see 4f) |
-| `2026-09-17_pcos_topic.sql` | `posts.topic` + its CHECK, and `posts_topic_pcos_idx` | **NOT YET — written Sep 17, to be pasted by hand** |
+| `2026-09-17_pcos_topic.sql` | `posts.topic` + its CHECK, and `posts_topic_pcos_idx` | **yes.** Confirmed against the live project Sep 29: a select naming `topic` returns rows rather than `42703`. |
+| `2026-09-29_soft_delete.sql` | `deleted_at` on `posts` and `comments`, the two delete guards, the widened length CHECKs, and `comments_update` if it is missing | **NOT YET — written Sep 29, to be pasted by hand** |
 
 **Section 7 below is written ahead of the live database on one point.** The
-first two rows above are applied; **`2026-09-17_pcos_topic.sql` is not**, so
-`posts.topic`, `posts_topic_check` and `posts_topic_pcos_idx` exist in this
-document and in the migration file but not yet in Postgres. Until it is pasted,
-`/t/pcos` shows *"column posts.topic does not exist"* and any post made from
-`/new?topic=pcos` fails on the same column. Nothing else regresses — the home
-feed, post detail and the composer without a preset never name the column.
+first three rows above are applied; **`2026-09-29_soft_delete.sql` is not**, so
+`deleted_at`, the two delete guards and the widened length CHECKs exist in this
+document and in the migration file but not yet in Postgres.
+
+**Until it is pasted, more regresses than last time.** The home feed and
+`/t/pcos` both send `deleted_at=is.null` and `/p/:id` selects the column, so
+all three show *"column posts.deleted_at does not exist"* — that is every
+screen that reads a post. Post detail's comment query names it too. This is
+the same shape as the `posts.topic` gap that preceded it, and the same fix:
+paste the migration, then run `notify pgrst, 'reload schema';` **in its own
+submission**, or PostgREST keeps answering `42703` from a cached schema long
+after the column is committed.
 
 `supabase/probes/` sits alongside `supabase/migrations/` and holds the transaction-wrapped probes that were split out of that migration. **Probes never live in a migration file** — finding 4f explains what that cost.
 
@@ -577,13 +584,29 @@ create table public.posts (
   like_count     int  not null default 0,
   comment_count  int  not null default 0,
   hidden         boolean not null default false,  -- moderation kill switch
+  -- Added Sep 29. NULL = live; non-null = a tombstone whose title and body
+  -- have ALREADY been blanked in the row by enforce_post_delete(). Written
+  -- only by that trigger, never by the client, so it cannot be backdated --
+  -- the same rule comments.depth follows. See section 28.
+  deleted_at     timestamptz,
   -- Added Sep 17. NULL = untagged, which is the normal case; the CHECK is the
   -- real guard on the value and the only place the set of legal topics is
   -- written down. This is ONE topic, not a topics system -- see section 26.
   topic          text,
   created_at     timestamptz not null default now(),
-  constraint title_len check (char_length(title) between 3 and 200),
-  constraint body_len check (char_length(body) <= 5000),
+  -- Widened Sep 29 so a tombstone is legal, and ONLY a tombstone: real
+  -- content keeps exactly the limits it had, and an empty value is legal only
+  -- alongside a deleted_at. That second arm is what makes the constraint an
+  -- independent guarantee rather than a formality -- it is not possible to
+  -- store a deleted row that still holds its text, trigger or no trigger.
+  constraint title_len check (
+    (deleted_at is null and char_length(title) between 3 and 200)
+    or (deleted_at is not null and title = '')
+  ),
+  constraint body_len check (
+    char_length(body) <= 5000
+    and (deleted_at is null or body = '')
+  ),
   constraint posts_topic_check check (topic is null or topic = 'pcos')
 );
 
@@ -611,8 +634,15 @@ create table public.comments (
   -- Added Sep 7 with comment likes. Denormalised, kept by a counter trigger.
   like_count  int not null default 0,
   hidden      boolean not null default false,
+  -- Added Sep 29, same contract as posts.deleted_at. The ROW STAYS, which is
+  -- the whole point: replies under a removed message keep their parent and
+  -- keep rendering.
+  deleted_at  timestamptz,
   created_at  timestamptz not null default now(),
-  constraint comment_body_len check (char_length(body) between 1 and 2000)
+  constraint comment_body_len check (
+    (deleted_at is null and char_length(body) between 1 and 2000)
+    or (deleted_at is not null and body = '')
+  )
 );
 
 create index comments_post_idx on public.comments (post_id, created_at);
@@ -663,6 +693,88 @@ $$;
 create trigger comments_depth_check
   before insert or update on public.comments
   for each row execute function public.enforce_comment_depth();
+
+-- ------------------------------------------------------------
+-- DELETE GUARDS (added Sep 29)
+--
+-- A delete is a tombstone: the row stays, the content goes. These are what
+-- make that true rather than a convention the client agrees to -- the erasure
+-- happens BEFORE UPDATE, inside the caller's own statement, so there is no
+-- window in which a deleted row still holds its text and no way for a client
+-- to set deleted_at while keeping the content.
+--
+-- NOT security definer. They only rewrite NEW, and RLS has already decided
+-- whether the caller may touch the row by the time they run.
+-- ------------------------------------------------------------
+create or replace function public.enforce_post_delete()
+returns trigger
+language plpgsql
+as $$
+begin
+  -- A tombstone is final, and this one rule is what makes the delete
+  -- irreversible: there is no update it accepts, so there is no update that
+  -- could restore content, re-title it, or re-tag it.
+  if old.deleted_at is not null then
+    raise exception 'This post has been deleted and can no longer be changed.';
+  end if;
+
+  -- Defence in depth, unreachable while the rule above stands. Written out so
+  -- that relaxing that rule cannot quietly re-open an undelete path.
+  if old.deleted_at is not null and new.deleted_at is null then
+    raise exception 'A deleted post cannot be restored.';
+  end if;
+
+  -- CLOSES THE SECTION 26 GAP. posts_update is row-scoped and names no
+  -- columns, so it always let an author re-tag their own post over PostgREST.
+  -- RLS gates rows, not columns, so no policy could have closed this.
+  if new.topic is distinct from old.topic then
+    raise exception 'A post''s topic cannot be changed after it is created.';
+  end if;
+
+  if new.deleted_at is not null then
+    new.deleted_at := now();   -- the server's clock, not the client's
+    new.title := '';           -- THE ERASURE
+    new.body  := '';
+  end if;
+
+  return new;
+end;
+$$;
+
+create trigger posts_delete_guard
+  before update on public.posts
+  for each row execute function public.enforce_post_delete();
+
+create or replace function public.enforce_comment_delete()
+returns trigger
+language plpgsql
+as $$
+begin
+  if old.deleted_at is not null then
+    raise exception 'This reply has been deleted and can no longer be changed.';
+  end if;
+
+  if old.deleted_at is not null and new.deleted_at is null then
+    raise exception 'A deleted reply cannot be restored.';
+  end if;
+
+  if new.deleted_at is not null then
+    new.deleted_at := now();
+    new.body := '';
+  end if;
+
+  return new;
+end;
+$$;
+
+-- TRIGGER NAME ORDER MATTERS. Two BEFORE UPDATE triggers now sit on comments,
+-- and Postgres fires same-timing triggers alphabetically by name:
+-- comments_delete_guard sorts before comments_depth_check ('del' < 'dep'), so
+-- an update to an already-deleted row is rejected before the depth trigger
+-- looks anything up. Renaming either changes which runs first.
+create trigger comments_delete_guard
+  before update on public.comments
+  for each row execute function public.enforce_comment_delete();
 
 -- ------------------------------------------------------------
 -- LIKES (one row per user per post)
@@ -846,11 +958,26 @@ from pg_class
 where relname in ('profiles','posts','comments','likes','comment_likes');
 ```
 
-**All five triggers present?** Expect five rows (`comment_likes_counter` added Sep 7).
+**All seven triggers present?** Expect seven rows (`comment_likes_counter`
+added Sep 7; the two delete guards added Sep 29).
 ```sql
 select tgname from pg_trigger
 where tgname in ('on_auth_user_created','comments_depth_check',
-                 'likes_counter','comments_counter','comment_likes_counter');
+                 'likes_counter','comments_counter','comment_likes_counter',
+                 'posts_delete_guard','comments_delete_guard');
+```
+
+**Is any tombstone still holding content?** Both counts must be zero. This is
+the one query that checks the erasure actually happened rather than trusting
+that it did.
+```sql
+select 'posts' as t,
+       count(*) filter (where deleted_at is not null and (title <> '' or body <> '')) as leaking
+from public.posts
+union all
+select 'comments',
+       count(*) filter (where deleted_at is not null and body <> '')
+from public.comments;
 ```
 
 **Backfill orphaned profiles.** Safe to run when there are none — affects zero rows. Only needed if a user was created before the trigger existed.
@@ -869,6 +996,8 @@ where p.id is null;
 drop table if exists public.comment_likes, public.likes, public.comments, public.posts, public.profiles cascade;
 drop function if exists public.handle_new_user cascade;
 drop function if exists public.enforce_comment_depth cascade;
+drop function if exists public.enforce_post_delete cascade;
+drop function if exists public.enforce_comment_delete cascade;
 drop function if exists public.sync_like_count cascade;
 drop function if exists public.sync_comment_like_count cascade;
 drop function if exists public.sync_comment_count cascade;
@@ -2725,18 +2854,26 @@ author_id)`: row-scoped, naming no columns, so a new column rides along with
 no policy edit. RLS in Postgres gates *rows*, not columns — column-level
 control is a `grant`, and this project grants nothing per column.
 
-**`posts_update` does let an author change `topic` on their own post.** It is
+**`posts_update` did let an author change `topic` on their own post.** It is
 `using (auth.uid() = author_id) with check (auth.uid() = author_id)`, so an
-author holding their own JWT can tag an existing post `'pcos'`, or untag one,
-straight over PostgREST. The constraint still bounds *what* they can set it
-to; it does not stop them setting it.
+author holding their own JWT could tag an existing post `'pcos'`, or untag
+one, straight over PostgREST. The constraint bounded *what* they could set it
+to; it did not stop them setting it.
 
-**Left as is, deliberately** — it is the same shape as the `hidden` caveat
-already recorded in section 7's design notes, where an author can flip their
-own post back to `hidden = false`. There is no edit UI, so this is not a path
-anyone reaches by using the app. If it ever matters, the fix is a column-level
-`grant` or a trigger that rejects a `topic` change on update, not a policy
-rewrite.
+> **CLOSED Sep 29** by `enforce_post_delete()`, the BEFORE UPDATE trigger added
+> with the delete pass (sections 7 and 28). It rejects any update where
+> `new.topic is distinct from old.topic`, so the topic is set at insert and is
+> immutable from then on. **The fix is a trigger, exactly as predicted here,
+> and for the reason predicted: RLS gates rows, not columns**, so no rewrite of
+> `posts_update` could ever have closed it. The policy is unchanged, which is
+> why the policy-listing query in the 2026-09-17 migration prints the same
+> thing before and after.
+>
+> The sibling caveat this paragraph compared itself to — an author flipping
+> their own post back to `hidden = false`, recorded in section 7's design
+> notes — is **still open**. It was left alone because moderation is a
+> different question from deletion, and closing it would change how the
+> moderator's kill switch behaves. The same trigger is where it would go.
 
 ### The client
 
@@ -3262,3 +3399,163 @@ Headless Chrome at 393×852 over CDP, against the live Supabase project:
 `/messages` centring wants a look on a notched device — it is the term most
 sensitive to the insets. The blur's cost under a real finger is still open too,
 and the deeper surface does not change that either way.
+
+---
+
+## 28. Authors can delete their own posts and replies (Sep 29)
+
+A delete that **keeps the row and destroys the content**. `deleted_at` on
+`posts` and `comments`; the text itself is erased by a BEFORE UPDATE trigger;
+the row stays so a thread keeps its shape and the replies under a removed
+message stay readable.
+
+**The migration is written and NOT APPLIED** —
+`supabase/migrations/2026-09-29_soft_delete.sql`. Section 7 is updated to
+match and is therefore ahead of the live database. See the note in section 7's
+migration table for what that costs in the meantime: it is more than last
+time, because every screen that reads a post now names `deleted_at`.
+
+### Why it is a tombstone and not a row delete
+
+A real `delete` cascades. `comments.parent_id` is `on delete cascade`, so
+deleting one reply would take its entire subtree with it — every answer
+anybody wrote underneath. Deleting a post would take every reply on it. The
+requirement is that the conversation survives, so the row has to survive.
+
+That is also why there is no `hidden`-style flag reuse: `hidden` is the
+moderator's kill switch and is *supposed* to be reversible. This is not.
+
+### The erasure is the point
+
+**A column the client merely agrees not to render is not a delete.** Anyone
+holding the anon key can read the row straight off PostgREST, and
+`profiles_select` being `using (true)` is a standing reminder that this app
+has no private read path. So:
+
+| Layer | What it guarantees |
+|---|---|
+| `enforce_post_delete()` / `enforce_comment_delete()` | Blank `title` / `body` in the same statement that sets `deleted_at`, whatever the client sent |
+| `title_len`, `body_len`, `comment_body_len` | A row with `deleted_at` set **cannot** hold content — so the guarantee survives the trigger being dropped |
+| `posts_update` / `comments_update` | Only the author can do it at all |
+
+The client sends **only** `{ deleted_at }`. It does not send `title: ''`,
+because that would be a second, forgeable copy of a rule the server already
+owns.
+
+**`deleted_at` is overwritten with `now()` by the trigger**, so what the client
+sends is a signal, not a value — the same rule `comments.depth` follows
+(section 20). A client cannot choose when something was deleted.
+
+### Irreversible, and enforced rather than promised
+
+`if old.deleted_at is not null then raise` rejects **every** update to a
+tombstone. That one rule is what makes the delete final: there is no update
+that could restore the content, re-title the row, or re-tag it. "Setting
+`deleted_at` back to null is rejected" is written out separately even though it
+is unreachable underneath that rule, so relaxing the rule cannot quietly
+re-open an undelete path.
+
+### Direct UPDATE, not a security-definer RPC
+
+Asked for as a choice, and this is the reasoning. **An RPC was rejected.**
+
+`security definer` **bypasses RLS**, so an RPC would have to re-implement
+"only the author may delete" by hand inside the function — replacing a policy
+that is already correct and already verified against the live project (finding
+4d, row two: a non-author update returns `200` with an empty array) with
+hand-written logic that is not. Section 7 uses `security definer` in exactly
+one place, the counter triggers, for exactly one reason: RLS genuinely blocks
+a write the trigger must make. Nothing here is blocked.
+
+The trigger erases the content no matter which path writes, so an RPC would
+add a second door into the same room without making the room safer. Direct
+UPDATE also keeps finding 4a's row-count check natural.
+
+**Finding 4a is load-bearing here and `softDelete()` obeys it.** An update
+filtered out by RLS — someone else's post — comes back `200` with an empty
+array and **no error**. Treating a missing `error` as success would report
+"deleted" over a row that never changed. Every delete uses
+`.update(...).eq('id', …).select('id')` and checks the returned row count.
+
+### The two triggers on `comments`, and their order
+
+`comments_delete_guard` and `comments_depth_check` are both BEFORE UPDATE.
+**Postgres fires same-timing triggers alphabetically by name**, and
+`'del' < 'dep'`, so the delete guard runs first and an update to a tombstone is
+rejected before the depth trigger looks anything up. **Renaming either one
+changes which runs first.**
+
+They compose cleanly on a live row: `enforce_comment_depth` re-reads the parent
+on UPDATE, and because tombstones keep their rows the parent is always still
+there — deleting a comment cannot orphan its children.
+
+### Counters: checked, unchanged, and not broken
+
+`sync_comment_count()` fires on INSERT and DELETE. A tombstone is an UPDATE, so
+**`posts.comment_count` does not decrement when a reply is deleted** — and that
+is correct, not a bug: the deleted reply still renders and still occupies a
+slot in the thread, so the feed's count still matches what a reader finds. The
+detail screen counts the loaded list, which includes tombstones, so the two
+agree rather than drifting (section 4c).
+
+Like rows are left alone. `like_count` on a deleted row is simply never shown.
+
+### What the UI does
+
+| | |
+|---|---|
+| Delete control | Author only, on their own post (detail screen) and their own replies. `.btn-quiet`'s 44px minimum; measured 44px tall |
+| Confirmation | Inline, not `window.confirm` — "Delete this? This can't be undone." with Cancel then Delete, both 44px |
+| A deleted item | `[deleted]` for the content **and** for the author name, muted and italic |
+| Replies beneath | Unchanged — still visible, still readable, still expandable |
+| Like buttons | Hidden on a deleted item |
+| Home feed and `/t/pcos` | Exclude deleted posts, via `.is('deleted_at', null)` |
+| `/p/:id` | Does **not** filter — a shared link still resolves to the tombstone and its thread |
+
+**A client-side feed filter is only honest because the content is gone.** There
+is nothing left for the filter to fail to hide; it is tidiness, not protection.
+
+**Reply stays available on a deleted item**, deliberately. The spec named the
+like button as the thing to hide and did not name Reply, and the thread is
+still alive — only the removed message is gone. Easy to change if that reads
+wrong on a phone; it is one condition in `CommentThread.tsx`.
+
+### THE CAVEAT: the author is hidden, not erased
+
+**`author_id` still points at the profile, and the embed still returns the
+display name.** So `[deleted]` is a UI treatment, and anyone reading the API
+can still see who wrote a tombstoned row. In a women's health app that is worth
+stating rather than leaving to be discovered.
+
+It was left that way on purpose: `author_id` is NOT NULL, carries the cascade
+from `auth.users`, and is what `posts_update` / `comments_update` scope on, so
+clearing it is a real schema decision and not a tweak. **If it matters, that is
+its own pass** — the likely shape is a view or an RPC that omits the embed for
+deleted rows, rather than touching the column.
+
+### Verified in the running app
+
+The migration is unapplied, so the client was exercised against **intercepted
+PostgREST responses** in headless Chrome at 393x852, with a forged session so
+`auth.uid()` could be pointed at either author:
+
+| Check | Result |
+|---|---|
+| My live post | Delete control shown; like shown; only my own reply carries a Delete |
+| Someone else's post | **No** delete control on the post; only the signed-in user's own reply has one |
+| After confirming | Title and byline both `[deleted]`, body gone, like button gone, delete control gone |
+| The request sent | `PATCH posts?id=eq.p1&select=id` with body `{"deleted_at":"…"}` — **nothing else** |
+| Replies under a deleted reply | Still present, still readable, still behind their collapse toggle |
+| Already-deleted post at `/p/:id` | Loads, shows the tombstone, shows all four replies |
+| RLS refusal (`200` + `[]`) | "That wasn't yours to delete." — prompt stays open, nothing on screen changes |
+| Trigger refusal (`P0001`) | Message passes through **verbatim**, as `commentErrorMessage` already does |
+| Tap targets | Delete trigger 44px; Cancel and Delete both 44px |
+
+**What that cannot cover, and what to check after pasting the migration:** the
+trigger actually blanking the text, the CHECK constraints refusing a tombstone
+that keeps its content, the topic-immutability rule, the rejection of a second
+update to a deleted row, and whether `comments_update` really exists (block 4
+of the migration creates it only if it does not). The verification block at the
+bottom of the migration answers all of these — **run it in its own submission**,
+or it only tells you the change is pending (finding 4f).
+

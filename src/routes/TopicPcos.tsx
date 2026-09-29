@@ -51,9 +51,11 @@ export default function TopicPcos() {
         supabase
           .from('posts')
           .select(
-            'id, title, body, like_count, comment_count, created_at, profiles!posts_author_id_fkey(display_name, avatar_emoji)',
+            'id, author_id, title, body, like_count, comment_count, created_at, deleted_at, profiles!posts_author_id_fkey(display_name, avatar_emoji)',
           )
           .eq('topic', PCOS)
+          // Same exclusion as the home feed, for the same reason. See Feed.tsx.
+          .is('deleted_at', null)
           .order('created_at', { ascending: false })
           .limit(50),
         userId ? supabase.from('likes').select('post_id').eq('user_id', userId) : null,

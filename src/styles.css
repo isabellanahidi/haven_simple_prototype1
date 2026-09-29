@@ -1428,6 +1428,10 @@ a {
 .post-meta {
   display: flex;
   align-items: center;
+  /* Wraps because .delete-confirm takes the full row when it opens. Nothing
+     else in here has ever needed to wrap, so this changes no existing
+     layout. */
+  flex-wrap: wrap;
   gap: var(--sp-4);
   margin-top: var(--sp-2);
 }
@@ -1687,6 +1691,7 @@ a {
 .comment-actions {
   display: flex;
   align-items: center;
+  flex-wrap: wrap; /* same reason as .post-meta */
   gap: var(--sp-2);
   margin-top: var(--sp-1);
 }
@@ -1798,4 +1803,87 @@ a {
   line-height: normal;
   font-weight: 400;
   color: var(--text);
+}
+
+
+/* ---------- delete ----------
+   Author-only, and a tombstone rather than a row delete — see CLAUDE.md
+   section 28. Everything here is colour and layout; what may actually be
+   deleted is decided by posts_update and comments_update, server-side. */
+
+/* .btn-quiet already carries the 44px minimum, so this only recolours it.
+   --danger on --surface measures 6.53:1 and on --bg 5.79:1, both past 4.5. */
+.delete-trigger {
+  margin-left: calc(-1 * var(--sp-3));
+  color: var(--danger);
+}
+
+/* Takes the whole row of whichever flex container it opens inside, so the
+   question is never squeezed alongside a like count. */
+.delete-confirm {
+  flex-basis: 100%;
+  width: 100%;
+  margin-top: var(--sp-2);
+  padding: var(--sp-3);
+  border-radius: var(--radius-sm);
+  /* --accent-soft, NOT --like-soft: .form-error renders inside this box on a
+     failure and is itself --like-soft, so matching them would make the error
+     vanish into the prompt. The two are two percent apart (section 19), which
+     is enough to separate a box from a box inside it. */
+  background: var(--accent-soft);
+}
+
+.delete-confirm-text {
+  margin: 0 0 var(--sp-2);
+  font-size: var(--fs-sm);
+  color: var(--text-body);
+}
+
+.delete-confirm-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+/* The destructive twin of .btn-primary. Deliberately NOT full-width: it sits
+   beside Cancel, and a full-width confirm would push Cancel onto its own row
+   where the destructive button reads as the default. --on-button is white,
+   which measures 6.53:1 on --danger. No new colour. */
+.btn-danger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--tap);
+  padding: 0 var(--sp-4);
+  border-radius: var(--radius);
+  background: var(--danger);
+  color: var(--on-button);
+  font-size: var(--fs-base);
+  font-weight: 650;
+}
+
+.btn-danger:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.btn-danger:not(:disabled):active {
+  opacity: 0.85;
+}
+
+/* Cancel is the safe choice, so it gets the plain treatment and sits first.
+   .btn-quiet's negative inset would pull it out of the padded box here. */
+.delete-cancel {
+  margin-left: 0;
+}
+
+/* The tombstone. Muted and italic so "[deleted]" reads as a state rather than
+   as something someone typed. The content itself is already gone from the
+   database — this is a placeholder standing in for nothing. */
+.detail-title-deleted,
+.comment-body-deleted,
+.byline-name-deleted {
+  color: var(--text-muted);
+  font-style: italic;
+  font-weight: 400;
 }

@@ -1,4 +1,4 @@
-import { author, type Comment } from '../lib/types';
+import { author, isDeleted, DELETED_PLACEHOLDER, type Comment } from '../lib/types';
 import {
   COLLAPSE_FROM_DEPTH,
   MAX_INDENT_DEPTH,
@@ -7,6 +7,7 @@ import {
 import { Byline } from './Byline';
 import { CommentLikeButton } from './CommentLikeButton';
 import { CommentComposer } from './CommentComposer';
+import { DeleteControl } from './DeleteControl';
 
 /** A comment that may not have reached the server yet. */
 export type LocalComment = Comment & { pending?: boolean };
@@ -18,6 +19,7 @@ type Props = {
   replyingTo: string | null;
   onReplyTo: (id: string | null) => void;
   onSubmitReply: (body: string, parentId: string) => Promise<string | null>;
+  onDelete: (id: string) => Promise<string | null>;
   requireSignIn: () => void;
   /** Per-node open state, in memory only. Undefined means "use the default". */
   openOverrides: Map<string, boolean>;
@@ -38,6 +40,7 @@ export function CommentThread({
   replyingTo,
   onReplyTo,
   onSubmitReply,
+  onDelete,
   requireSignIn,
   openOverrides,
   onToggleOpen,
@@ -60,13 +63,21 @@ export function CommentThread({
   const childrenOpen = openOverrides.get(comment.id) ?? childrenDefaultOpen;
 
   const isReplying = replyingTo === comment.id;
-  const authorName = author(comment.profiles).display_name;
+  const deleted = isDeleted(comment);
+  // The byline is "[deleted]" too, so the "replying to …" line has to match —
+  // naming the author of a removed reply would undo the whole treatment.
+  const authorName = deleted ? DELETED_PLACEHOLDER : author(comment.profiles).display_name;
+  // Drawing the control, not authorising it: comments_update is author-scoped
+  // and is what actually refuses a delete. A deleted row cannot be deleted
+  // again — the trigger rejects every update to a tombstone.
+  const canDelete = !deleted && !comment.pending && userId != null && userId === comment.author_id;
 
   return (
     <li
       className={[
         'comment',
         comment.pending ? 'pending' : '',
+        deleted ? 'comment-deleted' : '',
         atIndentCap ? 'comment-indent-capped' : '',
       ]
         .filter(Boolean)
@@ -79,18 +90,36 @@ export function CommentThread({
         <p className="comment-context">replying to {authorName}</p>
       )}
 
-      <Byline author={author(comment.profiles)} createdAt={comment.created_at} lead />
-      <p className="comment-body">{comment.body}</p>
+      <Byline
+        author={author(comment.profiles)}
+        createdAt={comment.created_at}
+        lead
+        deleted={deleted}
+      />
+      {/* The body is already '' in the database for a tombstone — the trigger
+          blanks it — so this renders a placeholder rather than hiding text it
+          still holds. There is nothing left here to hide. */}
+      <p className={deleted ? 'comment-body comment-body-deleted' : 'comment-body'}>
+        {deleted ? DELETED_PLACEHOLDER : comment.body}
+      </p>
 
       <div className="comment-actions">
-        <CommentLikeButton
-          commentId={comment.id}
-          initialCount={comment.like_count ?? 0}
-          initialLiked={likedIds.has(comment.id)}
-          // Nothing to like until the server has given the row an id.
-          disabled={comment.pending}
-        />
+        {/* Hidden on a tombstone: there is nothing to like. Existing like rows
+            are left alone in the database, so a restore-less delete does not
+            quietly rewrite anyone else's counts. */}
+        {!deleted && (
+          <CommentLikeButton
+            commentId={comment.id}
+            initialCount={comment.like_count ?? 0}
+            initialLiked={likedIds.has(comment.id)}
+            // Nothing to like until the server has given the row an id.
+            disabled={comment.pending}
+          />
+        )}
 
+        {/* Reply stays available under a deleted comment. The thread is still
+            alive and its replies are still readable, so the conversation can
+            continue — only the removed message is gone. */}
         {!comment.pending && !isReplying && (
           <button
             type="button"
@@ -99,6 +128,14 @@ export function CommentThread({
           >
             Reply
           </button>
+        )}
+
+        {canDelete && (
+          <DeleteControl
+            label="Delete"
+            confirmLabel="Delete"
+            onDelete={() => onDelete(comment.id)}
+          />
         )}
       </div>
 
@@ -141,6 +178,7 @@ export function CommentThread({
                   replyingTo={replyingTo}
                   onReplyTo={onReplyTo}
                   onSubmitReply={onSubmitReply}
+                  onDelete={onDelete}
                   requireSignIn={requireSignIn}
                   openOverrides={openOverrides}
                   onToggleOpen={onToggleOpen}

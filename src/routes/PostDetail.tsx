@@ -3,8 +3,16 @@ import { useParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useUserId } from '../lib/session';
 import { buildCommentTree, commentErrorMessage, COMMENT_LIMIT } from '../lib/comments';
-import { author, type Author, type FeedPost } from '../lib/types';
+import {
+  author,
+  isDeleted,
+  DELETED_PLACEHOLDER,
+  type Author,
+  type FeedPost,
+} from '../lib/types';
+import { softDelete } from '../lib/softDelete';
 import { Byline } from '../components/Byline';
+import { DeleteControl } from '../components/DeleteControl';
 import { LikeButton } from '../components/LikeButton';
 import { CommentThread, type LocalComment } from '../components/CommentThread';
 import { CommentComposer, LockedComposer } from '../components/CommentComposer';
@@ -23,8 +31,11 @@ import { BackButton } from '../components/BackButton';
 // One constant, deliberately: it feeds the list query AND the insert's
 // returning embed, so both were broken by the same omission and both are
 // fixed by the same hint.
+// author_id decides whether to draw a Delete control; deleted_at decides
+// whether to draw a tombstone. Neither authorises anything — comments_update
+// does that, server-side.
 const COMMENT_SELECT =
-  'id, parent_id, depth, like_count, body, created_at, profiles!comments_author_id_fkey(display_name, avatar_emoji)';
+  'id, parent_id, author_id, depth, like_count, body, created_at, deleted_at, profiles!comments_author_id_fkey(display_name, avatar_emoji)';
 
 export default function PostDetail() {
   const { id } = useParams<{ id: string }>();
@@ -54,8 +65,13 @@ export default function PostDetail() {
         supabase
           .from('posts')
           // See Feed.tsx — the author FK has to be named to disambiguate.
+          //
+          // NO deleted_at FILTER HERE, unlike the two feeds. A deleted post
+          // still loads: the page shows the tombstone and every reply under
+          // it, so a shared link does not turn into "post not found" and the
+          // conversation beneath it survives.
           .select(
-            'id, title, body, like_count, comment_count, created_at, profiles!posts_author_id_fkey(display_name, avatar_emoji)',
+            'id, author_id, title, body, like_count, comment_count, created_at, deleted_at, profiles!posts_author_id_fkey(display_name, avatar_emoji)',
           )
           .eq('id', id)
           .maybeSingle(),
@@ -139,10 +155,14 @@ export default function PostDetail() {
       const optimistic: LocalComment = {
         id: tempId,
         parent_id: parentId,
+        // Known without asking: only my own session can be writing this.
+        // It is replaced by the server's row moments later regardless.
+        author_id: userId,
         depth: parentDepth + 1,
         like_count: 0,
         body,
         created_at: new Date().toISOString(),
+        deleted_at: null,
         profiles: me,
         pending: true,
       };
@@ -175,6 +195,41 @@ export default function PostDetail() {
     [comments, id, me, userId],
   );
 
+  /**
+   * Delete the post itself.
+   *
+   * On success the row is patched in place rather than refetched: the server
+   * has already blanked title and body, so mirroring that locally is the same
+   * state one round trip sooner. deleted_at is set to a client timestamp that
+   * is only ever used to mean "truthy" — nothing renders it, and the server's
+   * own value is what a reload will show.
+   */
+  const deleteThisPost = useCallback(async (): Promise<string | null> => {
+    if (!post) return 'This post is still loading.';
+
+    const message = await softDelete('posts', post.id);
+    if (message) return message;
+
+    setPost((prev) =>
+      prev ? { ...prev, title: '', body: '', deleted_at: new Date().toISOString() } : prev,
+    );
+    return null;
+  }, [post]);
+
+  /** Delete one reply. Its children keep rendering — that is the whole point
+   *  of a tombstone rather than a row delete. */
+  const deleteComment = useCallback(async (commentId: string): Promise<string | null> => {
+    const message = await softDelete('comments', commentId);
+    if (message) return message;
+
+    setComments((prev) =>
+      (prev ?? []).map((c) =>
+        c.id === commentId ? { ...c, body: '', deleted_at: new Date().toISOString() } : c,
+      ),
+    );
+    return null;
+  }, []);
+
   // Recursive now, not a two-pass group-by: nesting is unlimited to a ceiling
   // of 100, and the old shape could only ever represent two levels.
   const threads = useMemo(() => buildCommentTree(comments ?? []), [comments]);
@@ -202,16 +257,30 @@ export default function PostDetail() {
 
   if (!post) return <Loading label="Loading post…" />;
 
+  const postDeleted = isDeleted(post);
+  // Drawn for the author only. The database decides it again in posts_update,
+  // so this is what to show, not what to allow.
+  const canDeletePost = !postDeleted && userId != null && userId === post.author_id;
+
   return (
     <>
       <BackButton to="/" />
 
-      <article className="detail-card">
-        <Byline author={author(post.profiles)} createdAt={post.created_at} lead />
-        <h1 className="detail-title">{post.title}</h1>
-        {post.body && <p className="detail-body">{post.body}</p>}
+      <article className={postDeleted ? 'detail-card detail-card-deleted' : 'detail-card'}>
+        <Byline author={author(post.profiles)} createdAt={post.created_at} lead deleted={postDeleted} />
+        {/* title and body are already '' in the database for a tombstone, so
+            this is a placeholder standing in for nothing, not a curtain over
+            text the row still holds. */}
+        <h1 className={postDeleted ? 'detail-title detail-title-deleted' : 'detail-title'}>
+          {postDeleted ? DELETED_PLACEHOLDER : post.title}
+        </h1>
+        {!postDeleted && post.body && <p className="detail-body">{post.body}</p>}
         <div className="post-meta">
-          <LikeButton postId={post.id} initialCount={post.like_count} initialLiked={liked} />
+          {/* Nothing to like once the content is gone. The like rows stay in
+              the database untouched. */}
+          {!postDeleted && (
+            <LikeButton postId={post.id} initialCount={post.like_count} initialLiked={liked} />
+          )}
           <span className="stat">
             <span className="stat-icon" aria-hidden="true">
               💬
@@ -219,6 +288,9 @@ export default function PostDetail() {
             {commentCount}
             <span className="sr-only">{commentCount === 1 ? ' reply' : ' replies'}</span>
           </span>
+          {canDeletePost && (
+            <DeleteControl label="Delete post" confirmLabel="Delete" onDelete={deleteThisPost} />
+          )}
         </div>
       </article>
 
@@ -249,6 +321,7 @@ export default function PostDetail() {
               replyingTo={replyingTo}
               onReplyTo={setReplyingTo}
               onSubmitReply={(body, parentId) => submitComment(body, parentId)}
+              onDelete={deleteComment}
               requireSignIn={requireSignIn}
               openOverrides={openOverrides}
               onToggleOpen={toggleOpen}
