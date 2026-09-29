@@ -2371,6 +2371,11 @@ and `public/fonts/` (the woff2 and its OFL licence). A preloaded font that
 nothing renders is a fetch on every load plus a console warning, so leaving it
 was not neutral. **Those are tracked files, so `git restore` brings them back.**
 
+> **`public/fonts/` exists again as of Sep 29** — Kaisei Opti Regular, for the
+> welcome screen and nothing else (section 26). Pacifico itself is still gone
+> and the greeting is still outlines. The two traps below are why that font is
+> declared the way it is.
+
 The source SVG is deleted too, as asked: `public/img/Hello, Jane!.svg` — its
 "Hello," half is now in `HelloLettering.tsx` and its "Jane" half was never
 wanted. **That one was never committed, so it is not recoverable.** If the
@@ -2866,12 +2871,16 @@ present"* — including `vite.config.ts` and files nothing has touched.
 that stray directory or add it to `.gitignore` plus the ESLint ignores;
 untouched here because it is not this task's to change.
 
-### Two design additions (Sep 28)
+### Two design additions (Sep 28, revised Sep 29)
 
 Recorded here rather than in a section of their own, because both extend the
 decision this section makes — a hand-placed addition to the grid, and a screen
 that is drawn rather than derived from data. **Neither touches the schema, a
 query, or the data model, and neither is a topics system.**
+
+**Revised Sep 29:** the welcome screen was restyled to its own Figma frame and
+gained the project's only webfont, and the Webinar tile moved to first
+position. Both are described in place below rather than as a diff.
 
 #### A "Webinar" tile, linking to `/messages`
 
@@ -2899,14 +2908,33 @@ Three things it changed, all of them in `TopicGrid.tsx`:
   nowhere to go, and an optional field on all eight reads as an invitation to
   fill it in.
 
+**It sits FIRST in the grid, before PCOS** (Sep 29) — top-left, with PCOS
+beside it on the right of the same row. Order is just its position in `TOPICS`.
+
+**Moving it could not disturb the pin, and that is worth knowing rather than
+assuming.** The pin is keyed on the tile's *name* (`PINNED_TOPIC`), not on its
+index, and it is absolutely positioned inside its own tile at `left: 83.33%`,
+so it travels with PCOS wherever PCOS lands. Verified after the move: the pin
+renders on PCOS at `(137.06, 0)` inside a 164.5px tile — the frame's own
+`(137, 0)` — and is not clipped by the tile's `overflow: hidden`. Nothing about
+the pinned-frame layout needed reworking.
+
 **The six inert tiles and the disabled search field are untouched.** Wiring
 either up is still adding a cut feature — ask first.
 
 #### The welcome screen
 
-A full-screen overlay reading *"Welcome — we are here to support each other."*
+A full-screen overlay reading *"we are here to support each other"* — lowercase,
+no punctuation, and **the only element on the screen**.
 `src/components/WelcomeOverlay.tsx`, mounted once in `App.tsx` **outside
 `<Routes>`**, so a route change cannot restart it.
+
+**Restyled Sep 29 to the Figma frame `launch-load` (node 2035:222).** It was
+burgundy with `--on-button` bold sans copy reading "Welcome — we are here to
+support each other."; the frame is the app's own pale ground with one small
+serif line. **Behaviour was not touched** — timing, `sessionStorage`, the
+new-account replay, reduced motion and the pointer-events release are all
+exactly as below, and were re-verified after the restyle.
 
 | | |
 |---|---|
@@ -2914,8 +2942,74 @@ A full-screen overlay reading *"Welcome — we are here to support each other."*
 | Reduced motion | No fade at all — one 2.2s hold, then unmounted |
 | Taps | Blocked while opaque; `pointer-events: none` from the moment the fade starts, so the 400ms of fading is not 400ms of swallowed taps |
 | Shown | Once per visit, plus once more immediately after an account is created |
-| Colour | `--button` with `--on-button` (7.61:1). **No new hex.** |
-| Height | `100dvh`, with the safe-area insets as padding |
+| Colour | `--bg` with `--text`. **No new hex.** |
+| Type | Kaisei Opti Regular, 20px, `line-height: normal`, centred |
+| Height | `100dvh` |
+
+##### The two numbers off the frame
+
+**The text is NOT vertically centred, and that is the design.** The frame puts
+the top of the text box at `y=337` in an 852px screen — a little above the
+middle. `337 / 852 = 39.554%`, and `.welcome` carries that as
+`padding-top: 39.554dvh` on a flex column, so the proportion survives every
+screen rather than pinning the line to 337 real pixels. Two things that choice
+turns on:
+
+- **`dvh`, not `vh`.** Safari's URL bar makes `100vh` larger than the visible
+  viewport, which would push the line down — the same reason `.messages-page`
+  composes from `100dvh` (section 27).
+- **A padding, not a percentage on the box.** A percentage `padding-top`
+  resolves against **width**, not height, so it would silently track the wrong
+  axis and drift with the column instead of the screen.
+- **No safe-area inset is added to it.** The design's 852px frame is the whole
+  screen including the status-bar band, so it is already measured from the same
+  origin the padding is; adding the inset would double-count it.
+
+**The three-line break is a 115px `max-width`, not `<br>`s.** The frame's text
+box is 115px wide, which is what splits the sentence into *"we are here / to
+support / each other"*. As a width it stays one sentence to a screen reader and
+re-wraps rather than breaking if the type ever changes. **Not `text-wrap:
+balance`** — that would re-even the lines and lose the frame's break; the width
+is the whole mechanism.
+
+Measured at 393x852: box top **337.00**, width **115**, centred at 196.5,
+**3 lines**, no vertical overflow. The proportion holds at 393x600, 430x932 and
+768x1024 — 39.55% and three lines at every one.
+
+##### The font
+
+**Kaisei Opti Regular, self-hosted, and the only webfont in the project.**
+`public/fonts/kaisei-opti-latin-400.woff2` (36KB, latin subset) with
+`KaiseiOpti-OFL.txt` beside it, declared in `styles.css` with `font-display:
+swap` and a matching `unicode-range`, preloaded from `index.html`, falling back
+to `Georgia, 'Times New Roman', Times, serif`.
+
+**Not linked from Google Fonts, and no npm dependency.** This is a PWA whose
+home screen should not depend on a third party to render, and the welcome
+overlay is the literal first thing anyone sees — a runtime `<link>` would put
+someone else's uptime in front of it.
+
+**THIS IS NOT THE TYPOGRAPHY PASS, AND DOES NOT START IT.** DM Sans (headings,
+the greeting's name — section 19) and Inter (the search placeholder — section
+24) are both still unhosted and still outstanding. This is one face for one
+screen. Adding a second is that pass, and a decision of its own.
+
+Two traps, both of them section 19's, both still live and both hit here:
+
+- **The Google Fonts CSS for Kaisei Opti returns 123 `@font-face` blocks**,
+  because it is a Japanese family sliced by `unicode-range` — and **the latin
+  block is the LAST one**, exactly as it was for Pacifico. Taking the first URL
+  gets a subset with no Latin glyphs, and the text renders in the fallback,
+  which looks precisely like the font having failed to load.
+- **`crossorigin` is required on the preload even though the file is
+  same-origin.** Fonts are fetched in CORS mode; without it the preload is
+  discarded and the file is fetched a second time, which is worse than not
+  preloading at all.
+
+Verified in the running app that the face actually renders rather than falling
+back, by measuring the same string in all three: Kaisei 112.00px, Georgia
+101.17px, **as rendered 112.00px**. `document.fonts` reports one family,
+loaded.
 
 **Once per visit is `sessionStorage`, and every access is wrapped in
 try/catch.** A session store is exactly what "a visit" means, and it clears
@@ -2953,11 +3047,13 @@ decision lives in the `useState` lazy initializer, which is a pure read, so it
 survives the remount. Any future "show something once" overlay wants the same
 shape.
 
-Verified in the running app at 393x852: `visible` at 0ms, `fading` at 2025ms,
-gone at 2430ms; under `prefers-reduced-motion: reduce` the transition is `0s`
-and it never enters the fading phase. A second load in the same session shows
-nothing, and `document.elementFromPoint` at the centre of the screen returns
-the page underneath once it is gone.
+Verified in the running app at 393x852, and **re-verified unchanged after the
+Sep 29 restyle**: `visible` at ~0ms, `fading` at ~2.0s with `pointer-events:
+none`, gone at ~2.4s; under `prefers-reduced-motion: reduce` the transition is
+`0s` and it never enters the fading phase, going straight from visible to gone
+at ~2.2s. A second load in the same session shows nothing, a `replayWelcome()`
+shows it again and it clears on its own, and `document.elementFromPoint` at the
+centre of the screen returns the page underneath once it is gone.
 
 ---
 

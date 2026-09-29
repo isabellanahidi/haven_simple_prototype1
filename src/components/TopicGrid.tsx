@@ -115,6 +115,11 @@ const TOPIC_HREFS: Record<string, string> = {
  * app can store.
  */
 const TOPICS: Topic[] = [
+  // Added tile, not in the frame, and the only one with no illustration.
+  // FIRST on purpose: it is the one tile pointing at something time-bound.
+  // Its position is independent of the pin, which is keyed on the tile's name
+  // rather than on its index — see PINNED_TOPIC.
+  { name: WEBINAR_TILE },
   {
     name: PCOS_TILE,
     ill: {
@@ -178,8 +183,6 @@ const TOPICS: Topic[] = [
       crop: { w: '261.22%', h: '616.51%', l: '-166.94%', t: '-515.06%' },
     },
   },
-  // Added tile, not in the frame, and the only one with no illustration.
-  { name: WEBINAR_TILE },
 ];
 
 /** The pin, composed from the frame's two exported vectors at the frame's own

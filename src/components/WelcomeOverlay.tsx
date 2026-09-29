@@ -78,7 +78,12 @@ export function WelcomeOverlay() {
       // to act on. Not a dialog — it traps no focus and takes no input.
       role="status"
     >
-      <p className="welcome-text">Welcome — we are here to support each other.</p>
+      {/* Per the Figma frame launch-load (node 2035:222): lowercase, no
+          punctuation, and the only element on the screen. The three-line
+          break is the frame's 115px text box, reproduced as a max-width in
+          .welcome-text -- NOT as <br>s, so it stays one sentence to a screen
+          reader and re-wraps rather than breaking if the type ever changes. */}
+      <p className="welcome-text">we are here to support each other</p>
     </div>
   );
 }

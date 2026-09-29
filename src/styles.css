@@ -4,6 +4,42 @@
    Mobile-Safari baseline lives in the "reset" block below.
    ============================================================ */
 
+/* ---------- webfonts ----------
+
+   THE ONLY WEBFONT IN THE PROJECT, and deliberately so. It sets one line on
+   one screen: the welcome overlay. The broader typography pass is still
+   outstanding — DM Sans for headings and the greeting's name, Inter for the
+   search placeholder (CLAUDE.md sections 19 and 24) — and this does not start
+   it. Adding a second face is that pass, not a follow-on from this one.
+
+   SELF-HOSTED, NOT LINKED. This is a PWA whose home screen should not depend
+   on a third party to render, and a runtime <link> to Google Fonts puts
+   someone else's uptime in front of the first thing anyone sees.
+
+   Two traps, both recorded in CLAUDE.md and both live here:
+
+     - The Google Fonts CSS for Kaisei Opti returns 123 @font-face blocks,
+       because it is a Japanese family sliced by unicode-range. THE LATIN BLOCK
+       IS THE LAST ONE, not the first. Taking the first URL gets a subset with
+       no Latin glyphs at all, and the text silently renders in the fallback —
+       which looks exactly like the font having failed to load.
+     - The preload in index.html needs `crossorigin` even though the file is
+       same-origin. See the comment there.
+
+   The unicode-range below is copied verbatim from that latin block, so the
+   browser skips the download entirely for text this subset cannot set.
+   font-display: swap, so the words are readable before the font arrives. */
+@font-face {
+  font-family: 'Kaisei Opti';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/kaisei-opti-latin-400.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
 :root {
   /* ---------- colour ----------
      Read from the Figma frame Main-HomeTab (node 2068:170). That file defines
@@ -1698,12 +1734,27 @@ a {
   inset: 0;
   z-index: 100; /* above the tab bar (20) and the drawer */
   display: flex;
+  flex-direction: column;
   align-items: center;
-  justify-content: center;
+  /* THE TEXT IS NOT VERTICALLY CENTRED. The frame puts the top of the text
+     box at y=337 in an 852px screen, which is a little above the middle, and
+     that is a deliberate part of how the screen reads.
+
+     337 / 852 = 39.554%, expressed against the viewport's own height so the
+     proportion survives every screen this runs on — a tall phone, a short
+     one in landscape, a desktop window. `dvh` rather than `vh` because
+     Safari's URL bar makes 100vh larger than the visible viewport, which
+     would push the line down; and as a padding rather than a percentage,
+     because a percentage padding resolves against WIDTH, not height, and
+     would silently track the wrong axis.
+
+     No safe-area inset is added to it. The design's 852px frame is the whole
+     screen including the status-bar band, so it is already measured from the
+     same origin this padding is. */
+  padding-top: 39.554dvh;
+  padding-inline: var(--sp-5);
   height: 100dvh;
-  padding: calc(var(--sp-6) + env(safe-area-inset-top)) var(--sp-5)
-    calc(var(--sp-6) + env(safe-area-inset-bottom));
-  background: var(--button);
+  background: var(--bg);
   opacity: 1;
   /* Must match FADE_MS in WelcomeOverlay.tsx. */
   transition: opacity 400ms ease;
@@ -1729,11 +1780,22 @@ a {
 
 .welcome-text {
   margin: 0;
-  max-width: 20ch;
+  /* The frame's text box is 115px wide, which is what breaks the sentence
+     into "we are here / to support / each other". Reproduced as a width
+     rather than as <br>s, so the screen reader still hears one sentence and
+     the line breaks are the type's own doing.
+
+     NOT `text-wrap: balance` — that would re-even the lines and lose the
+     frame's break. The width is the whole mechanism. */
+  max-width: 115px;
   text-align: center;
-  text-wrap: balance;
-  font-size: var(--fs-xl);
-  line-height: 1.4;
-  font-weight: 700;
-  color: var(--on-button);
+  /* Kaisei Opti Regular, per the frame. The serif fallbacks are what render
+     during the swap and on the rare device that blocks the download; they set
+     wider than Kaisei at the same size, so the three-line break is the thing
+     to re-check if this stack is ever reordered. */
+  font-family: 'Kaisei Opti', Georgia, 'Times New Roman', Times, serif;
+  font-size: 20px;
+  line-height: normal;
+  font-weight: 400;
+  color: var(--text);
 }

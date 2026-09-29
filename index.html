@@ -6,6 +6,22 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Haven</title>
 
+    <!-- The welcome screen's face, self-hosted: a PWA's first paint should not
+         wait on a third party, and the one place this font appears is the
+         first thing anyone sees. Latin subset only.
+
+         crossorigin IS REQUIRED EVEN THOUGH THE FILE IS SAME-ORIGIN. Fonts are
+         fetched in CORS mode, so without it the preload is discarded and the
+         file is fetched a second time -- worse than not preloading at all.
+         See CLAUDE.md section 26. -->
+    <link
+      rel="preload"
+      href="/fonts/kaisei-opti-latin-400.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+
     <link rel="manifest" href="/manifest.json" />
     <meta name="theme-color" content="#feedf1" />
 
