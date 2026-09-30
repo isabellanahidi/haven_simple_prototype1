@@ -111,7 +111,7 @@ These were cut on purpose to protect the deadline. **Do not add them back** with
 - [x] `src/App.tsx` — temporary diagnostic screen (see section 6a)
 - [x] `.env.local` created and **values filled in**; gitignored via `*.local`
 - [x] **Schema applied** — all of section 7 run in the SQL Editor
-- [x] **`handle_new_user` trigger confirmed firing** — verified Aug 29 against the then-current `anon-XXXX` format, which **no longer exists**; the trigger now generates two-word pseudonyms (section 7)
+- [x] **`handle_new_user` trigger confirmed firing** — verified Aug 29 against the then-current `anon-XXXX` format, which **no longer exists**; the trigger was rewritten again Sep 29 and now delegates to `generate_display_name()` (section 7). The last two rows still carrying old-format names were renamed the same day — see 6d.
 - [x] **Enumerate RLS + triggers explicitly** — run both queries in 7a; the join query proves the profile trigger works but does not confirm RLS is on or that the other three triggers exist
 - [x] **Env vars added to Vercel project settings** — status unconfirmed; assume not done
 - [x] Auth bootstrap verified end to end on a real iPhone (verified on desktop only)
@@ -410,6 +410,30 @@ Do not develop in private tabs full-time. You'd get a new identity on every clos
 - Safari macOS: Settings (⌘,) → Privacy → Manage Website Data → search the domain → Remove. (Develop → Empty Caches does *not* clear localStorage.)
 - Safari iOS: Settings app → Safari → Advanced → Website Data → swipe left on the entry → Delete
 
+### 6d. Old `anon-` display names — RESOLVED (Sep 29)
+
+**There is no section "6A" in this document, and never was.** This subsection
+was added on Sep 29 to hold the resolution, because a task referred to a
+"§6A anon-c801 bug" that is not recorded anywhere in the repo — `grep -rn
+c801` finds nothing in `CLAUDE.md`, `src/`, or `supabase/`. **If there are
+details of that bug worth keeping, they are not written down and this is the
+place for them.** What follows is only what can be verified.
+
+**Resolved by renaming, not by code.** Two profile rows still carried names in
+the retired formats — the `anon-` + four-hex one that `handle_new_user`
+stopped generating on Aug 31, and one set by hand. Both were renamed on Sep 29
+by calling `generate_display_name()` against them, as a one-off data fix
+alongside the username migration. The live names are now `pearlyivy` and
+`stillpoppy`, both from the current wordlist.
+
+**Nothing can reintroduce the old format**, which is what makes this closed
+rather than merely cleaned up: `generate_display_name()` is the only thing that
+writes a username, `profiles_name_guard` rejects any change to one afterwards,
+and no client code sends `display_name` at all. See section 7.
+
+**A name matching `anon-[0-9a-f]{4}` is now a signal that something is wrong**,
+not that a row is old. The 7a verification query says so.
+
 ---
 
 ## 7. Database schema (full, authoritative)
@@ -425,21 +449,19 @@ The convention started Sep 7, so it is not retrospective: the original schema be
 | — | The original four tables, triggers and RLS below | yes, by hand |
 | `2026-09-07_nesting_and_comment_likes.sql` | Unlimited nesting + `comments.depth`, `comment_likes`, `comments.like_count` | **yes, Sep 7** (on the second attempt — see 4f) |
 | `2026-09-17_pcos_topic.sql` | `posts.topic` + its CHECK, and `posts_topic_pcos_idx` | **yes.** Confirmed against the live project Sep 29: a select naming `topic` returns rows rather than `42703`. |
-| `2026-09-29_soft_delete.sql` | `deleted_at` on `posts` and `comments`, the two delete guards, the widened length CHECKs, and `comments_update` if it is missing | **NOT YET — written Sep 29, to be pasted by hand** |
+| `2026-09-29_soft_delete.sql` | `deleted_at` on `posts` and `comments`, the two delete guards, the widened length CHECKs, and `comments_update` if it is missing | **yes, Sep 29** — with corrected trigger bodies (see below) |
+| `2026-09-29_username_wordlist.sql` | `generate_display_name()`, the rewritten `handle_new_user`, the case-insensitive unique index, and `profiles_name_guard` | **yes, Sep 29** |
 
-**Section 7 below is written ahead of the live database on one point.** The
-first three rows above are applied; **`2026-09-29_soft_delete.sql` is not**, so
-`deleted_at`, the two delete guards and the widened length CHECKs exist in this
-document and in the migration file but not yet in Postgres.
+**Every row above is applied, and section 7 matches the live database.**
 
-**Until it is pasted, more regresses than last time.** The home feed and
-`/t/pcos` both send `deleted_at=is.null` and `/p/:id` selects the column, so
-all three show *"column posts.deleted_at does not exist"* — that is every
-screen that reads a post. Post detail's comment query names it too. This is
-the same shape as the `posts.topic` gap that preceded it, and the same fix:
-paste the migration, then run `notify pgrst, 'reload schema';` **in its own
-submission**, or PostgREST keeps answering `42703` from a cached schema long
-after the column is committed.
+**The Sep 29 delete migration was applied with corrected trigger bodies**, and
+both the migration file and the listing below carry the corrected version. The
+correction: the "already deleted" branch of each guard no longer rejects every
+update to a tombstone — it rejects changes to the **frozen columns** only and
+otherwise returns NEW, because a whole-row freeze also blocked the counter
+triggers that have to update that row. The separate "cannot be restored" branch
+went with it, since freezing `deleted_at` already covers restoring. Section 28
+has the reasoning and the trap it came from.
 
 `supabase/probes/` sits alongside `supabase/migrations/` and holds the transaction-wrapped probes that were split out of that migration. **Probes never live in a migration file** — finding 4f explains what that cost.
 
@@ -462,102 +484,144 @@ create table public.profiles (
   created_at    timestamptz not null default now(),
   constraint display_name_len check (char_length(display_name) between 1 and 30),
   constraint bio_len check (char_length(bio) <= 300),
-  -- Added Aug 31. handle_new_user's collision retry depends on this existing;
-  -- without it the retry loop is dead code and duplicate names go unnoticed.
+  -- Added Aug 31, and NOT dropped by the Sep 29 username migration, so both
+  -- this and the case-insensitive index below are in force. This one is
+  -- case-SENSITIVE and is now the weaker of the two; it is redundant rather
+  -- than wrong. Dropping it would be a tidy-up, not a fix.
   constraint profiles_display_name_unique unique (display_name)
 );
 
+-- Added Sep 29. THE REAL UNIQUENESS RULE, and case-insensitive:
+-- generate_display_name() checks `lower(display_name)` and this indexes the
+-- same expression, so the check and the constraint agree. Without it
+-- 'QuietFern' and 'quietfern' would be two different people.
+create unique index profiles_display_name_key
+  on public.profiles (lower(display_name));
+
+-- ------------------------------------------------------------
+-- NAME GENERATION (rewritten Sep 29)
+--
+-- Lifted out of handle_new_user into its own function, so the trigger is
+-- three lines and the wordlist has one home. 48 x 48 = 2304 combinations.
+--
+-- SECURITY DEFINER because it reads public.profiles to check for a clash.
+-- The revoke below was meant to stop anyone calling it over RPC and DOES NOT
+-- WORK AS WRITTEN -- see the note under the wordlist.
+-- ------------------------------------------------------------
+create or replace function public.generate_display_name()
+returns text
+language plpgsql
+security definer
+set search_path to 'public'
+as $$
+declare
+  adjectives text[] := array[
+    'quiet','gentle','bright','calm','brave','soft','sunny','wild','misty','golden',
+    'silver','coral','amber','ivory','hazel','rosy','dusky','pearly','velvet','breezy',
+    'mellow','tender','lively','dreamy','cozy','warm','swift','still','early','wandering',
+    'humble','honest','kindly','merry','noble','patient','serene','steady','witty','lunar',
+    'starry','dappled','summer','winter','autumn','spring','clever','gleaming'
+  ];
+  nouns text[] := array[
+    'fern','willow','maple','cedar','juniper','laurel','ivy','sage','violet','tulip',
+    'poppy','dahlia','jasmine','magnolia','peony','clover','meadow','brook','river','lake',
+    'harbor','island','prairie','valley','ridge','grove','garden','orchard','petal','blossom',
+    'sparrow','wren','finch','robin','heron','dove','otter','fawn','rabbit','fox',
+    'moth','firefly','acorn','pebble','shell','cloud','ember','dune'
+  ];
+  candidate text;
+  tries int := 0;
+begin
+  loop
+    candidate := adjectives[1 + floor(random() * array_length(adjectives, 1))::int]
+              || nouns[1 + floor(random() * array_length(nouns, 1))::int];
+    -- lower() on both sides, matching profiles_display_name_key exactly.
+    exit when not exists (select 1 from public.profiles where lower(display_name) = lower(candidate));
+    tries := tries + 1;
+    if tries >= 25 then
+      candidate := candidate || (10 + floor(random() * 90))::int::text;
+      exit;
+    end if;
+  end loop;
+  return candidate;
+end;
+$$;
+
+revoke execute on function public.generate_display_name() from anon, authenticated;
+
 -- Auto-create a profile whenever an auth user appears.
+--
+-- NO RETRY ON CONFLICT any more. Generation is check-then-insert across two
+-- statements, and this function has no exception handler, so a race that lost
+-- the unique index would raise straight out of the insert into auth.users and
+-- fail the signup. Negligible at 2304 combinations and a handful of users;
+-- the retry wants to come back at any real volume.
 create or replace function public.handle_new_user()
 returns trigger
 language plpgsql
 security definer
-set search_path = public
+set search_path to 'public'
 as $$
-declare
-  adjectives constant text[] := array[
-    'alpine', 'amber', 'autumn', 'boreal', 'breezy', 'clear',
-    'cloudless', 'coastal', 'cobalt', 'copper', 'crisp', 'dappled',
-    'drizzly', 'early', 'eastern', 'evening', 'foggy', 'frosted',
-    'gilded', 'glassy', 'golden', 'grassy', 'gravelly', 'hazy',
-    'highland', 'indigo', 'inland', 'jade', 'leafy', 'linen',
-    'lowland', 'lunar', 'marbled', 'misty', 'moonlit', 'morning',
-    'northern', 'ochre', 'opal', 'overcast', 'paper', 'pebbled',
-    'quartz', 'quiet', 'rainy', 'rocky', 'rustic', 'sandy',
-    'shaded', 'silver', 'slate', 'snowy', 'solar', 'southern',
-    'starlit', 'sunlit', 'twilight', 'umber', 'upland', 'velvet',
-    'verdant', 'western', 'winding', 'windy', 'wintry', 'wooded'
-  ];
-  nouns constant text[] := array[
-    'alder', 'arbor', 'ash', 'aspen', 'basin', 'beacon',
-    'birch', 'bracken', 'bramble', 'branch', 'brook', 'canyon',
-    'cedar', 'clover', 'cove', 'creek', 'dune', 'elm',
-    'ember', 'fern', 'field', 'fjord', 'forest', 'glade',
-    'glen', 'grove', 'harbor', 'heath', 'hedge', 'hill',
-    'isle', 'juniper', 'lake', 'lantern', 'laurel', 'ledge',
-    'marsh', 'meadow', 'mesa', 'moor', 'moss', 'oak',
-    'orchard', 'pine', 'pond', 'prairie', 'quarry', 'reed',
-    'reef', 'ridge', 'river', 'rowan', 'sedge', 'shore',
-    'spruce', 'stone', 'stream', 'summit', 'thicket', 'thistle',
-    'tide', 'timber', 'trail', 'valley', 'vine', 'willow'
-  ];
-  candidate text;
-  id_hex    text := replace(new.id::text, '-', '');
-  attempt   int;
 begin
-  -- Phase 1: five tries at a clean two-word name, no digits. Max 16 chars.
-  for attempt in 1..5 loop
-    candidate := adjectives[1 + floor(random() * 66)::int]
-                 || nouns[1 + floor(random() * 66)::int];
-    begin
-      insert into public.profiles (id, display_name)
-      values (new.id, candidate);
-      return new;
-    exception when unique_violation then
-      -- Distinguish a name clash from a duplicate profile WITHOUT relying on
-      -- the constraint's name. If a row already exists for this id then the
-      -- primary key is what conflicted, which is a genuine fault and must
-      -- surface. Otherwise it was display_name, so retry.
-      if exists (select 1 from public.profiles where id = new.id) then
-        raise;
-      end if;
-    end;
-  end loop;
-
-  -- Phase 2: five more with a random two-digit suffix. Max 18 chars.
-  for attempt in 1..5 loop
-    candidate := adjectives[1 + floor(random() * 66)::int]
-                 || nouns[1 + floor(random() * 66)::int]
-                 || lpad(floor(random() * 100)::int::text, 2, '0');
-    begin
-      insert into public.profiles (id, display_name)
-      values (new.id, candidate);
-      return new;
-    exception when unique_violation then
-      if exists (select 1 from public.profiles where id = new.id) then
-        raise;
-      end if;
-    end;
-  end loop;
-
-  -- Terminal fallback, seeded from the user's own id. Max 28 chars.
-  --
-  -- This cannot collide between two users: the suffix is 12 hex characters
-  -- (48 bits) taken from a UUID that is already unique, so two users would
-  -- have to share a 12-character id prefix before the name could repeat.
-  -- No exception handler here on purpose -- reaching this line and still
-  -- failing would be a real fault, not a name collision.
   insert into public.profiles (id, display_name)
-  values (new.id, adjectives[1 + floor(random() * 66)::int]
-                 || nouns[1 + floor(random() * 66)::int]
-                 || substr(id_hex, 1, 12));
+  values (new.id, public.generate_display_name());
   return new;
 end;
 $$;
 
-**Wordlist exclusion standard.** This is a women's health app, so the wordlist is curated against a rule, not assembled by taste. Words are drawn only from **weather, landscape, plants, materials, and light**. A word is excluded if it could read as a remark about the person rather than a label:
+-- ------------------------------------------------------------
+-- USERNAMES ARE IMMUTABLE (added Sep 29)
+--
+-- Assigned once, at signup, and kept. BEFORE UPDATE only, so
+-- handle_new_user's insert is unaffected.
+--
+-- `is distinct from`, so an update that re-sends the SAME display_name passes
+-- -- which matters, because the profile form sends the whole row. Only an
+-- actual change raises.
+-- ------------------------------------------------------------
+create or replace function public.enforce_profile_immutable_name()
+returns trigger
+language plpgsql
+as $$
+begin
+  if new.display_name is distinct from old.display_name then
+    raise exception 'Usernames cannot be changed.';
+  end if;
+  return new;
+end;
+$$;
 
-| Excluded because | Words removed so far |
+create trigger profiles_name_guard
+  before update on public.profiles
+  for each row execute function public.enforce_profile_immutable_name();
+
+**Wordlist, as applied Sep 29.** 48 adjectives x 48 nouns = 2304 names, all
+lowercase, longest possible `wanderingmagnolia` at 17 characters (19 with the
+two-digit collision suffix) — comfortably inside `display_name_len`'s 30.
+
+> **THIS WORDLIST DOES NOT SATISFY THE EXCLUSION STANDARD BELOW, AND THE
+> CONFLICT IS UNRESOLVED.** Three words the standard names as
+> "do not reintroduce" are back — **`coral`, `hazel`, `ivory`**, all three
+> excluded for describing skin, hair or eye colour — and the list as a whole
+> draws heavily on temperament (`gentle`, `brave`, `humble`, `honest`,
+> `kindly`, `merry`, `noble`, `patient`, `serene`, `steady`, `witty`,
+> `clever`, `tender`, `dreamy`, `mellow`, `lively`), which the standard
+> excludes as a category and which the old list deliberately avoided.
+>
+> That is a wholesale change of intent, not an oversight, so it is recorded
+> rather than reverted. **One of the two has to give:** either the standard is
+> retired and this paragraph replaced with what the new rule is, or the three
+> named words come out and the temperament words are reconsidered. Until
+> somebody decides, the standard below describes the old list, not the running
+> one.
+
+**The exclusion standard (written for the pre-Sep-29 wordlist).** This is a
+women's health app, so the wordlist was curated against a rule, not assembled
+by taste. Words were drawn only from **weather, landscape, plants, materials,
+and light**. A word was excluded if it could read as a remark about the person
+rather than a label:
+
+| Excluded because | Words removed |
 |---|---|
 | Names or evokes a condition | `lichen` (lichen sclerosus, a vulvar condition discussed on these forums) |
 | Describes skin, hair, or eye colour | `dewy`, `ivory`, `olive`, `wheaten`, `hazel`, `bronze`, `coral` |
@@ -567,7 +631,16 @@ $$;
 | Reads bleak | `chalky`, `flinty`, `tundra` |
 | Refers to age | `elder`, `ancient` |
 
-**Do not reintroduce any word in that table.** When adding words, keep both arrays at exactly 66, keep them alphabetical, and re-check: no duplicates within an array, no word in both, and no same-root cross pair (`mossy` + `moss` would yield `mossymoss`). The 1–30 `display_name_len` ceiling is set by the longest word in each array — currently `cloudless` (9) and `bracken` (7), giving 16 plain, 18 with the digit suffix, and 28 at the terminal fallback. A longer word than either raises all three.
+**Do not reintroduce any word in that table** — a rule the Sep 29 list breaks
+three times (`coral`, `hazel`, `ivory`), per the note above. The rest of the
+old guidance is kept, because it is still the right shape for whichever list
+wins: keep the two arrays equal in length, keep them alphabetical, and
+re-check that there are no duplicates within an array, no word in both, and no
+same-root cross pair (`mossy` + `moss` would yield `mossymoss`). The
+`display_name_len` ceiling of 30 is set by the longest word in each array; at
+48 x 48 the worst case is `wanderingmagnolia` (17), so there is a lot of
+headroom now. **The Sep 29 arrays are not alphabetical and are 48 each** — the
+"exactly 66, alphabetical" rule described the retired list only.
 
 create trigger on_auth_user_created
   after insert on auth.users
@@ -711,17 +784,24 @@ returns trigger
 language plpgsql
 as $$
 begin
-  -- A tombstone is final, and this one rule is what makes the delete
-  -- irreversible: there is no update it accepts, so there is no update that
-  -- could restore content, re-title it, or re-tag it.
   if old.deleted_at is not null then
-    raise exception 'This post has been deleted and can no longer be changed.';
-  end if;
+    -- A TOMBSTONE FREEZES ITS COLUMNS, NOT ITS ROW. These four are what the
+    -- delete means: deleted_at is the delete itself, title and body are what
+    -- was erased, topic is the tag that was already immutable. Rejecting a
+    -- change to any of them is what makes the delete final -- `is distinct
+    -- from` catches both setting deleted_at back to null and re-stamping it,
+    -- which is why there is no separate "cannot be restored" branch.
+    if new.deleted_at is distinct from old.deleted_at
+       or new.title is distinct from old.title
+       or new.body is distinct from old.body
+       or new.topic is distinct from old.topic then
+      raise exception 'This post has been deleted and can no longer be changed.';
+    end if;
 
-  -- Defence in depth, unreachable while the rule above stands. Written out so
-  -- that relaxing that rule cannot quietly re-open an undelete path.
-  if old.deleted_at is not null and new.deleted_at is null then
-    raise exception 'A deleted post cannot be restored.';
+    -- Everything else passes, AND IT HAS TO: like_count and comment_count are
+    -- written by the security definer counter triggers, and a guard that
+    -- rejected every update to a tombstone rejected those too. See section 28.
+    return new;
   end if;
 
   -- CLOSES THE SECTION 26 GAP. posts_update is row-scoped and names no
@@ -751,11 +831,15 @@ language plpgsql
 as $$
 begin
   if old.deleted_at is not null then
-    raise exception 'This reply has been deleted and can no longer be changed.';
-  end if;
+    -- Same shape, same reasoning. Two frozen columns rather than four: a
+    -- comment has no title and no topic. like_count is deliberately NOT
+    -- frozen, so sync_comment_like_count() can still update a tombstone.
+    if new.deleted_at is distinct from old.deleted_at
+       or new.body is distinct from old.body then
+      raise exception 'This reply has been deleted and can no longer be changed.';
+    end if;
 
-  if old.deleted_at is not null and new.deleted_at is null then
-    raise exception 'A deleted reply cannot be restored.';
+    return new;
   end if;
 
   if new.deleted_at is not null then
@@ -937,7 +1021,7 @@ create policy comment_likes_delete on public.comment_likes
 
 Keep these saved in the SQL Editor. Useful now and any time something behaves oddly.
 
-**Users and their profiles.** Every row must have a populated `profile_id`. `display_name` is now a two-word lowercase pseudonym such as `quietfern` — **the old `anon-` + four-hex format is gone**, so a name matching that old pattern means the row predates Aug 31, not that things are working. Names are unique, so distinct names must equal row count.
+**Users and their profiles.** Every row must have a populated `profile_id`. `display_name` is a two-word lowercase pseudonym such as `pearlyivy` — **the old `anon-` + four-hex format is gone**, and as of Sep 29 no row carries it: the two that still did were renamed by hand through `generate_display_name()`. A name matching that old pattern now means something is wrong, not merely old. Names are unique **case-insensitively** (`profiles_display_name_key`), so distinct lowercased names must equal row count.
 ```sql
 select
   u.id,
@@ -958,13 +1042,14 @@ from pg_class
 where relname in ('profiles','posts','comments','likes','comment_likes');
 ```
 
-**All seven triggers present?** Expect seven rows (`comment_likes_counter`
-added Sep 7; the two delete guards added Sep 29).
+**All eight triggers present?** Expect eight rows (`comment_likes_counter`
+added Sep 7; the two delete guards and `profiles_name_guard` added Sep 29).
 ```sql
 select tgname from pg_trigger
 where tgname in ('on_auth_user_created','comments_depth_check',
                  'likes_counter','comments_counter','comment_likes_counter',
-                 'posts_delete_guard','comments_delete_guard');
+                 'posts_delete_guard','comments_delete_guard',
+                 'profiles_name_guard');
 ```
 
 **Is any tombstone still holding content?** Both counts must be zero. This is
@@ -995,6 +1080,8 @@ where p.id is null;
 ```sql
 drop table if exists public.comment_likes, public.likes, public.comments, public.posts, public.profiles cascade;
 drop function if exists public.handle_new_user cascade;
+drop function if exists public.generate_display_name cascade;
+drop function if exists public.enforce_profile_immutable_name cascade;
 drop function if exists public.enforce_comment_depth cascade;
 drop function if exists public.enforce_post_delete cascade;
 drop function if exists public.enforce_comment_delete cascade;
@@ -1294,7 +1381,7 @@ The select policies already permitted the anon role. `profiles` is `using (true)
 3. ~~**Sign-out affordance**~~ — **done.** It sits at the bottom of `/me`, under the password controls.
 4. **Anonymous sign-ins can be toggled off** in the dashboard. **Still on** — confirmed against `/auth/v1/settings` on Sep 1 (`"anonymous_users": true`, `"email": true`).
 5. **Existing anonymous users still exist in `auth.users`**, including the ones that own the current test posts. Decide whether to keep them readable or clear them; the scoped deletes in 6c still apply.
-6. ~~The `handle_new_user` default display name is still `anon-XXXX`.~~ **Done Aug 31** — now a two-word pseudonym, with a unique constraint and collision retry. See section 7.
+6. ~~The `handle_new_user` default display name is still `anon-XXXX`.~~ **Done Aug 31** — now a two-word pseudonym. **Rewritten again Sep 29**: generation moved into `generate_display_name()`, uniqueness became case-insensitive, the collision retry was dropped, and usernames became immutable. See section 7 and 6d.
 
 ---
 
@@ -3409,11 +3496,10 @@ A delete that **keeps the row and destroys the content**. `deleted_at` on
 the row stays so a thread keeps its shape and the replies under a removed
 message stay readable.
 
-**The migration is written and NOT APPLIED** —
-`supabase/migrations/2026-09-29_soft_delete.sql`. Section 7 is updated to
-match and is therefore ahead of the live database. See the note in section 7's
-migration table for what that costs in the meantime: it is more than last
-time, because every screen that reads a post now names `deleted_at`.
+**APPLIED Sep 29** — `supabase/migrations/2026-09-29_soft_delete.sql` — but
+**with corrected trigger bodies**, for the reason in "Freeze columns, not
+rows" below. The migration file and section 7 both carry the corrected
+version; what is written down is what is running.
 
 ### Why it is a tombstone and not a row delete
 
@@ -3448,12 +3534,52 @@ sends is a signal, not a value — the same rule `comments.depth` follows
 
 ### Irreversible, and enforced rather than promised
 
-`if old.deleted_at is not null then raise` rejects **every** update to a
-tombstone. That one rule is what makes the delete final: there is no update
-that could restore the content, re-title the row, or re-tag it. "Setting
-`deleted_at` back to null is rejected" is written out separately even though it
-is unreachable underneath that rule, so relaxing the rule cannot quietly
-re-open an undelete path.
+On a tombstone the guard rejects any change to the columns that carry the
+delete — on `posts` that is `deleted_at`, `title`, `body` and `topic`; on
+`comments`, `deleted_at` and `body`. That is what makes the delete final:
+there is no update that could restore the content, re-title the row, or re-tag
+it.
+
+**`is distinct from` on `deleted_at` is doing two jobs**, which is why there is
+no separate "cannot be restored" branch any more. It rejects setting the column
+back to null, and it also rejects re-stamping it with a different time — a
+check written as `new.deleted_at is null` would have caught only the first.
+
+**What a tombstone will now accept** is `like_count`, `comment_count`,
+`hidden` and `created_at`. The counters are the point (below); the other two
+were already mutable by their author on a live row, so nothing is newly open —
+the freeze is scoped to exactly the columns that mean "deleted".
+
+### Freeze columns, not rows
+
+**A BEFORE UPDATE trigger that rejects every update to a row also rejects the
+`security definer` counter triggers that have to update it. `security definer`
+does not help: elevated rights do not exempt a statement from a BEFORE
+trigger.**
+
+The first version of these guards did exactly that, and it broke two ordinary
+paths:
+
+| Someone does this | What happened |
+|---|---|
+| Replies to a deleted post | the `comments` insert fires `sync_comment_count()` → `update posts set comment_count = …` → guard raises → **the whole reply fails** |
+| Likes a deleted post | the `likes` insert fires `sync_like_count()` → same → **the like fails** |
+
+The first is reachable straight from the app: `/p/:id` deliberately keeps the
+composer on a deleted post, because the thread is still alive. So "delete a
+post, then have anyone reply to it" was a hard failure carrying a raw trigger
+message.
+
+**The fix is to name the columns the rule is actually about.** A whole-row
+freeze is the tempting shorthand — it reads stricter and sounds safer — but it
+silently takes in every denormalised counter, every future `updated_at`, and
+anything else the database maintains on the row's behalf. The rule was never
+"this row may not change"; it was "this row's content may not come back".
+
+Worth carrying beyond deletes: **any BEFORE trigger written as a row-level veto
+should be checked against every trigger that writes to that table**, because
+those writes arrive as ordinary UPDATEs and the veto cannot tell them apart
+from a client's.
 
 ### Direct UPDATE, not a security-definer RPC
 
@@ -3485,9 +3611,11 @@ array and **no error**. Treating a missing `error` as success would report
 rejected before the depth trigger looks anything up. **Renaming either one
 changes which runs first.**
 
-They compose cleanly on a live row: `enforce_comment_depth` re-reads the parent
-on UPDATE, and because tombstones keep their rows the parent is always still
-there — deleting a comment cannot orphan its children.
+They compose cleanly: `enforce_comment_depth` re-reads the parent on UPDATE,
+and because tombstones keep their rows the parent is always still there —
+deleting a comment cannot orphan its children. That matters more than it first
+appeared, because a counter update on a tombstone now passes the delete guard
+and then runs the depth trigger too.
 
 ### Counters: checked, unchanged, and not broken
 
@@ -3535,9 +3663,9 @@ deleted rows, rather than touching the column.
 
 ### Verified in the running app
 
-The migration is unapplied, so the client was exercised against **intercepted
-PostgREST responses** in headless Chrome at 393x852, with a forged session so
-`auth.uid()` could be pointed at either author:
+Before the migration was applied, the client was exercised against
+**intercepted PostgREST responses** in headless Chrome at 393x852, with a
+forged session so `auth.uid()` could be pointed at either author:
 
 | Check | Result |
 |---|---|
@@ -3551,11 +3679,13 @@ PostgREST responses** in headless Chrome at 393x852, with a forged session so
 | Trigger refusal (`P0001`) | Message passes through **verbatim**, as `commentErrorMessage` already does |
 | Tap targets | Delete trigger 44px; Cancel and Delete both 44px |
 
-**What that cannot cover, and what to check after pasting the migration:** the
+**What that could not cover, and what the server side still owes a check:** the
 trigger actually blanking the text, the CHECK constraints refusing a tombstone
-that keeps its content, the topic-immutability rule, the rejection of a second
-update to a deleted row, and whether `comments_update` really exists (block 4
-of the migration creates it only if it does not). The verification block at the
-bottom of the migration answers all of these — **run it in its own submission**,
-or it only tells you the change is pending (finding 4f).
+that keeps its content, the topic-immutability rule, the rejection of a change
+to a frozen column, and — the one this section now exists to warn about — **a
+reply and a like landing on a deleted post without raising**. The verification
+block at the bottom of the migration covers the structural half; the
+behavioural half wants a transaction-wrapped probe in `supabase/probes/`, which
+has not been written. **Run either in its own submission**, or it only tells you
+the change is pending (finding 4f).
 

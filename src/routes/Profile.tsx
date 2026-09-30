@@ -3,13 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useSession } from '../lib/session';
 import { charLength } from '../lib/text';
-import {
-  AVATAR_CHOICES,
-  BIO_MAX,
-  DISPLAY_NAME_MAX,
-  DISPLAY_NAME_MIN,
-  profileErrorMessage,
-} from '../lib/profile';
+import { AVATAR_CHOICES, BIO_MAX, profileErrorMessage } from '../lib/profile';
 import { relativeTime } from '../lib/time';
 import { useRecoverStaleSession } from '../lib/authRedirect';
 import { EmptyState, ErrorState, Loading } from '../components/States';
@@ -44,7 +38,6 @@ export default function Profile() {
   const [posts, setPosts] = useState<MyPost[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  const [displayName, setDisplayName] = useState('');
   const [bio, setBio] = useState('');
   const [emoji, setEmoji] = useState('🙂');
 
@@ -89,7 +82,7 @@ export default function Profile() {
 
       const profile = profileRes.data as Saved;
       setSaved(profile);
-      setDisplayName(profile.display_name);
+      // display_name is read-only, so it is only ever read off `saved`.
       setBio(profile.bio);
       setEmoji(profile.avatar_emoji);
       setPosts((postsRes.data ?? []) as MyPost[]);
@@ -106,25 +99,16 @@ export default function Profile() {
     void recoverStaleSession();
   }, [staleSession, recoverStaleSession]);
 
-  // Count the trimmed values — that is what gets stored, and what the CHECK
-  // constraints are evaluated against. charLength counts code points, matching
-  // Postgres char_length(); `.length` would count an emoji in a display name
-  // as two.
-  const trimmedName = displayName.trim();
+  // Count the trimmed value — that is what gets stored, and what the CHECK
+  // constraint is evaluated against. charLength counts code points, matching
+  // Postgres char_length(); `.length` would count an emoji as two.
   const trimmedBio = bio.trim();
-  const nameLen = charLength(trimmedName);
   const bioLen = charLength(trimmedBio);
 
-  const nameTooShort = nameLen < DISPLAY_NAME_MIN;
-  const nameTooLong = nameLen > DISPLAY_NAME_MAX;
   const bioTooLong = bioLen > BIO_MAX;
-  const valid = !nameTooShort && !nameTooLong && !bioTooLong;
+  const valid = !bioTooLong;
 
-  const dirty =
-    saved !== null &&
-    (trimmedName !== saved.display_name ||
-      trimmedBio !== saved.bio ||
-      emoji !== saved.avatar_emoji);
+  const dirty = saved !== null && (trimmedBio !== saved.bio || emoji !== saved.avatar_emoji);
 
   function edit<T>(setter: (value: T) => void) {
     return (value: T) => {
@@ -145,8 +129,11 @@ export default function Profile() {
     setSaving(true);
     setSaveError(null);
 
+    // DISPLAY_NAME IS DELIBERATELY ABSENT. profiles_name_guard raises
+    // 'Usernames cannot be changed.' on any update where display_name differs
+    // from the stored value, so sending it is at best a no-op and at worst a
+    // failed save. The column is the database's to write, once, at signup.
     const next = {
-      display_name: trimmedName,
       bio: trimmedBio,
       avatar_emoji: emoji,
     };
@@ -168,7 +155,9 @@ export default function Profile() {
       return;
     }
 
-    setSaved(next);
+    // next has no display_name, so carry the existing one forward rather than
+    // dropping it out of `saved` — the read-only field renders from it.
+    setSaved({ ...saved, ...next });
     setJustSaved(true);
   }
 
@@ -208,32 +197,23 @@ export default function Profile() {
           </div>
         </div>
 
+        {/* READ-ONLY, AND NOT AN INPUT AT ALL. The username is assigned once
+            by generate_display_name() at signup and profiles_name_guard
+            rejects any update that changes it, so a disabled <input> would
+            just be a form control that can never do anything. Rendering it as
+            text says what is true: this is a fact about the account, not a
+            field. */}
         <div className="field">
-          <div className="field-head">
-            <label className="field-label" htmlFor="display-name">
-              Display name
-            </label>
-            <span className={nameTooLong ? 'counter over' : 'counter'} aria-live="polite">
-              {nameLen} / {DISPLAY_NAME_MAX}
-            </span>
-          </div>
-          <input
-            id="display-name"
-            className="text-input"
-            type="text"
-            value={displayName}
-            onChange={(e) => edit(setDisplayName)(e.target.value)}
-            placeholder="What should people call you?"
-            autoComplete="off"
-            disabled={saving}
-          />
-          {nameTooLong && (
-            <p className="field-hint over">
-              {nameLen - DISPLAY_NAME_MAX} character
-              {nameLen - DISPLAY_NAME_MAX === 1 ? '' : 's'} too long.
-            </p>
-          )}
-          {nameTooShort && <p className="field-hint">A display name can't be empty.</p>}
+          <span className="field-label" id="username-label">
+            Username
+          </span>
+          <p className="readonly-value" aria-labelledby="username-label">
+            {saved.display_name}
+          </p>
+          <p className="field-hint">
+            This is the name shown beside everything you post. It&rsquo;s chosen for you and
+            can&rsquo;t be changed.
+          </p>
         </div>
 
         <div className="field">

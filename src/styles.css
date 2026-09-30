@@ -1887,3 +1887,23 @@ a {
   font-style: italic;
   font-weight: 400;
 }
+
+
+/* ---------- read-only field value ----------
+   A fact about the account rendered as text, not as a disabled input: the
+   username is assigned at signup and frozen by profiles_name_guard, so a form
+   control would promise an edit that cannot happen. Sized and inset like
+   .text-input so it still reads as part of the form. */
+.readonly-value {
+  margin: 0;
+  min-height: var(--tap);
+  display: flex;
+  align-items: center;
+  padding: 0 var(--sp-3);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--text);
+  font-size: var(--fs-base);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}

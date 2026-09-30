@@ -1,6 +1,11 @@
 import type { PostgrestError } from '@supabase/supabase-js';
 
 // constraint display_name_len check (char_length(display_name) between 1 and 30)
+//
+// NOT USED BY ANY FORM as of Sep 29: display_name is assigned by
+// generate_display_name() at signup and frozen by profiles_name_guard, so
+// there is no field to count. Kept because profileErrorMessage still names the
+// bounds, and because the constraint itself is still in the schema.
 export const DISPLAY_NAME_MIN = 1;
 export const DISPLAY_NAME_MAX = 30;
 // constraint bio_len check (char_length(bio) <= 300)
@@ -24,6 +29,14 @@ export const AVATAR_CHOICES = [
 /** Turn a failed profile update into something worth showing a person. */
 export function profileErrorMessage(error: PostgrestError | null): string {
   if (!error) return "That didn't save. Try again.";
+
+  // enforce_profile_immutable_name() raises 'Usernames cannot be changed.',
+  // which is already written for a person, so it passes through verbatim —
+  // the same treatment commentErrorMessage and the delete guards get. Nothing
+  // in the app sends display_name any more, so this should be unreachable;
+  // it is here so that if something ever starts sending it again, the reason
+  // is legible instead of raw.
+  if (error.code === 'P0001') return error.message;
 
   if (error.code === '23514') {
     if (error.message.includes('display_name_len')) {

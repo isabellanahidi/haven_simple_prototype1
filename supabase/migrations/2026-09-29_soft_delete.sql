@@ -1,7 +1,7 @@
 -- ============================================================
 -- 2026-09-29 — Author-deletable posts and replies, as tombstones
 --
--- STATUS: NOT YET APPLIED. Paste into the Supabase SQL Editor and run.
+-- STATUS: APPLIED 2026-09-29.
 --
 -- Contains DDL and READ-ONLY verification queries only. NO `rollback`
 -- anywhere, and none may be added: the SQL Editor runs a whole paste as
@@ -28,11 +28,16 @@
 -- constraints then hold the same line independently: a row with
 -- deleted_at set CANNOT hold content, trigger or no trigger.
 --
--- IRREVERSIBLE, and enforced rather than promised. The trigger rejects
--- every update to a row that is already deleted, which covers clearing
--- deleted_at back to null. There is no undelete path and none may be
--- added without deciding, separately, what "restore" means for content
--- that no longer exists.
+-- IRREVERSIBLE, and enforced rather than promised. On a row that is
+-- already deleted the trigger rejects any change to the columns that
+-- carry the delete -- deleted_at, the content, and the topic -- which
+-- covers clearing deleted_at back to null and covers re-stamping it.
+-- There is no undelete path and none may be added without deciding,
+-- separately, what "restore" means for content that no longer exists.
+--
+-- IT FREEZES COLUMNS, NOT THE ROW, AND THAT DISTINCTION IS LOAD-BEARING.
+-- An earlier draft rejected EVERY update to a tombstone, which also
+-- rejected the counter triggers' own updates -- see the note in BLOCK 3.
 --
 -- ------------------------------------------------------------
 -- DIRECT UPDATE, NOT A SECURITY-DEFINER RPC. One door, deliberately.
@@ -158,20 +163,31 @@ returns trigger
 language plpgsql
 as $$
 begin
-  -- A tombstone is final. This single rule is what makes the delete
-  -- irreversible: there is no update it will accept, so there is no
-  -- update that could restore content, change the title, or re-tag it.
   if old.deleted_at is not null then
-    raise exception 'This post has been deleted and can no longer be changed.';
-  end if;
+    -- A TOMBSTONE FREEZES ITS COLUMNS, NOT ITS ROW.
+    --
+    -- These four are what the delete means: deleted_at is the delete
+    -- itself, title and body are what was erased, topic is the tag that
+    -- was already immutable. Rejecting a change to any of them is what
+    -- makes the delete final -- including setting deleted_at back to
+    -- null, and including re-stamping it with a different time, both of
+    -- which `is distinct from` catches. That is why there is no separate
+    -- "cannot be restored" branch: this covers it.
+    if new.deleted_at is distinct from old.deleted_at
+       or new.title is distinct from old.title
+       or new.body is distinct from old.body
+       or new.topic is distinct from old.topic then
+      raise exception 'This post has been deleted and can no longer be changed.';
+    end if;
 
-  -- Defence in depth, and unreachable while the rule above stands: it is
-  -- written out so that relaxing that rule cannot quietly re-open an
-  -- undelete path. Stated separately because "already deleted rows are
-  -- frozen" and "deleted_at never goes back to null" are two different
-  -- promises, and only one of them is obvious from the other.
-  if old.deleted_at is not null and new.deleted_at is null then
-    raise exception 'A deleted post cannot be restored.';
+    -- EVERYTHING ELSE PASSES, AND IT HAS TO. like_count and comment_count
+    -- are maintained by sync_like_count() and sync_comment_count(), which
+    -- run `update posts set ... where id = ...` from a row-level trigger
+    -- on likes / comments. A guard that rejected every update to a
+    -- tombstone rejected those too -- so liking or replying to a deleted
+    -- post failed outright, and `security definer` does not help, because
+    -- elevated rights do not exempt a statement from a BEFORE trigger.
+    return new;
   end if;
 
   -- Closes the gap recorded in CLAUDE.md section 26: posts_update is
@@ -209,11 +225,16 @@ language plpgsql
 as $$
 begin
   if old.deleted_at is not null then
-    raise exception 'This reply has been deleted and can no longer be changed.';
-  end if;
+    -- The same shape as enforce_post_delete, with the same reasoning. Two
+    -- frozen columns here rather than four: a comment has no title and no
+    -- topic. like_count is deliberately NOT frozen, so
+    -- sync_comment_like_count() can still update a tombstoned comment.
+    if new.deleted_at is distinct from old.deleted_at
+       or new.body is distinct from old.body then
+      raise exception 'This reply has been deleted and can no longer be changed.';
+    end if;
 
-  if old.deleted_at is not null and new.deleted_at is null then
-    raise exception 'A deleted reply cannot be restored.';
+    return new;
   end if;
 
   if new.deleted_at is not null then
