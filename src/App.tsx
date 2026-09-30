@@ -6,6 +6,7 @@ import { WelcomeOverlay } from './components/WelcomeOverlay';
 import Feed from './routes/Feed';
 import TopicPcos from './routes/TopicPcos';
 import Messages from './routes/Messages';
+import Webinar from './routes/Webinar';
 import PostDetail from './routes/PostDetail';
 import CreatePost from './routes/CreatePost';
 import Profile from './routes/Profile';
@@ -48,6 +49,9 @@ export default function App() {
               {/* A placeholder screen, but a real route: the Messages tab
                   needs somewhere to go. See section 27. */}
               <Route path="/messages" element={<Messages />} />
+              {/* Reached from the topic grid's Webinar tile, NOT from the tab
+                  bar — so no tab renders active here. See section 27. */}
+              <Route path="/webinar" element={<Webinar />} />
               <Route path="/signin" element={<SignIn />} />
 
               {/* Writing needs a user. */}

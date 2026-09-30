@@ -24,9 +24,9 @@ import { PCOS } from '../lib/topics';
  *     response that will not arrive.
  *
  * THE TWO EXCEPTIONS ARE PCOS/PMOS, which links to /t/pcos, and Webinar, which
- * links to /messages. Both are narrow, hand-placed additions recorded in
+ * links to /webinar. Both are narrow, hand-placed additions recorded in
  * CLAUDE.md section 26, with no topics table behind either — and Webinar is
- * not a topic feed at all, it points at the Messages placeholder. In both the
+ * not a topic feed at all, it points at a one-line placeholder screen. In both the
  * <li> is kept and the link goes INSIDE it, so the grid stays a list of tiles
  * rather than a list of links, and the six inert tiles are unchanged.
  *
@@ -68,9 +68,10 @@ const PCOS_TILE = 'PCOS/PMOS';
 
 /**
  * WEBINAR is not in the Figma frame. It is an added tile (CLAUDE.md section
- * 26) that links to /messages, which is where the Messages tab's "Stay tuned
- * for webinar" placeholder lives — so the grid and the tab point at the same
- * screen.
+ * 26). It links to /webinar, a route of its own as of Sep 30 — it used to
+ * point at /messages, back when that screen carried the webinar copy because
+ * the Messages tab was the only live destination that could hold it. The two
+ * are now separate screens saying separate things.
  *
  * It has no entry in the sprite sheet and gets no illustration. Giving it
  * another topic's crop would be worse than a plain tile: the art is specific,
@@ -100,7 +101,7 @@ const PINNED_TOPIC = PCOS_TILE;
  */
 const TOPIC_HREFS: Record<string, string> = {
   [PCOS_TILE]: `/t/${PCOS}`,
-  [WEBINAR_TILE]: '/messages',
+  [WEBINAR_TILE]: '/webinar',
 };
 
 /**

@@ -2,7 +2,9 @@
 -- 2026-09-29 — Usernames: new wordlist, case-insensitive uniqueness,
 --              and display_name made immutable
 --
--- STATUS: APPLIED 2026-09-29, in the two submissions marked below.
+-- STATUS: APPLIED 2026-09-29, in the two submissions marked below, then
+--         AMENDED the same day: the effective revoke was added and four
+--         adjectives were swapped out. This file is the live state.
 --
 -- Contains DDL only. NO `rollback` anywhere, and none may be added: the
 -- SQL Editor runs a whole paste as ONE transaction, so a rollback at the
@@ -21,7 +23,10 @@
 --     function, public.generate_display_name(). handle_new_user is now
 --     three lines and calls it.
 --   * A new, shorter wordlist: 48 adjectives x 48 nouns = 2304
---     combinations (the old pair was 66 x 66 = 4356).
+--     combinations (the old pair was 66 x 66 = 4356). Four adjectives
+--     were swapped out later the same day -- `coral`, `hazel`, `ivory`
+--     and `dusky`, all complexion-adjacent, replaced by `frosty`,
+--     `leafy`, `mossy` and `stormy`. The array below is the live one.
 --   * Uniqueness is now CASE-INSENSITIVE, via a unique index on
 --     lower(display_name). generate_display_name checks the same
 --     expression, so the check and the index agree.
@@ -44,23 +49,22 @@
 -- ever replayed onto a database with real rows.
 --
 -- ------------------------------------------------------------
--- TWO THINGS WORTH KNOWING, NEITHER FIXED HERE
+-- TWO THINGS WORTH KNOWING. THE FIRST IS FIXED HERE; THE SECOND IS NOT.
 --
---   1. THE REVOKE BELOW DOES NOT ACTUALLY BLOCK ANON. Postgres grants
---      EXECUTE on a new function to PUBLIC by default, and
+--   1. REVOKING FROM A ROLE IS NOT ENOUGH; REVOKE FROM PUBLIC. Postgres
+--      grants EXECUTE on a new function to PUBLIC by default, and
 --      `revoke ... from anon, authenticated` removes only grants made
---      directly to those roles -- it does not touch the PUBLIC grant they
---      both inherit. Verified against the live project on Sep 29: an
---      unauthenticated POST to /rest/v1/rpc/generate_display_name with
---      only the anon key returned 200 and a name. The fix is one more
---      line, in its own submission:
+--      directly to those roles -- it leaves the PUBLIC grant they both
+--      inherit. With only that line in place, an unauthenticated POST to
+--      /rest/v1/rpc/generate_display_name carrying just the anon key
+--      returned 200 and a name. Both lines are now in the file; with the
+--      second one applied the same request returns 401 and
+--      `42501 permission denied for function generate_display_name`.
+--      Both readings were taken against the live project on Sep 29.
 --
---          revoke execute on function public.generate_display_name() from public;
---
---      Impact is low -- the function returns a random unused name and
---      leaks no row -- but it is an unauthenticated endpoint that loops
---      up to 25 existence checks per call, and the revoke was clearly
---      meant to close it.
+--      Worth generalising: any `security definer` helper added to the
+--      exposed schema is callable over RPC by default. Revoking from
+--      PUBLIC is the line that closes it.
 --
 --   2. GENERATION IS CHECK-THEN-INSERT, WITH NO RETRY ON CONFLICT. The
 --      loop exits as soon as it finds an unused name, and handle_new_user
@@ -88,7 +92,7 @@ as $$
 declare
   adjectives text[] := array[
     'quiet','gentle','bright','calm','brave','soft','sunny','wild','misty','golden',
-    'silver','coral','amber','ivory','hazel','rosy','dusky','pearly','velvet','breezy',
+    'silver','frosty','amber','leafy','mossy','rosy','stormy','pearly','velvet','breezy',
     'mellow','tender','lively','dreamy','cozy','warm','swift','still','early','wandering',
     'humble','honest','kindly','merry','noble','patient','serene','steady','witty','lunar',
     'starry','dappled','summer','winter','autumn','spring','clever','gleaming'
@@ -118,6 +122,10 @@ end;
 $$;
 
 revoke execute on function public.generate_display_name() from anon, authenticated;
+-- The line above is not enough on its own: Postgres grants EXECUTE on a new
+-- function to PUBLIC, which anon and authenticated inherit, and revoking from
+-- a role does not remove a grant held through PUBLIC. Only this closes it.
+revoke execute on function public.generate_display_name() from public;
 
 create or replace function public.handle_new_user()
 returns trigger

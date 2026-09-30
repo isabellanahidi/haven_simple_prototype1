@@ -504,9 +504,16 @@ create unique index profiles_display_name_key
 -- Lifted out of handle_new_user into its own function, so the trigger is
 -- three lines and the wordlist has one home. 48 x 48 = 2304 combinations.
 --
--- SECURITY DEFINER because it reads public.profiles to check for a clash.
--- The revoke below was meant to stop anyone calling it over RPC and DOES NOT
--- WORK AS WRITTEN -- see the note under the wordlist.
+-- SECURITY DEFINER because it reads public.profiles to check for a clash,
+-- which is also why it must not be callable over RPC -- hence the two revokes
+-- below. Both are needed; see the comment on the second.
+--
+-- The clash check applies lower() to both sides, matching the expression
+-- profiles_display_name_key indexes, so the check and the constraint agree.
+--
+-- THE FUNCTION BODY BELOW IS BYTE-IDENTICAL TO THE LIVE ONE. Anything worth
+-- saying about it goes in this header, not inside it: a comment inside the
+-- body becomes part of prosrc and would make the two diverge.
 -- ------------------------------------------------------------
 create or replace function public.generate_display_name()
 returns text
@@ -517,7 +524,7 @@ as $$
 declare
   adjectives text[] := array[
     'quiet','gentle','bright','calm','brave','soft','sunny','wild','misty','golden',
-    'silver','coral','amber','ivory','hazel','rosy','dusky','pearly','velvet','breezy',
+    'silver','frosty','amber','leafy','mossy','rosy','stormy','pearly','velvet','breezy',
     'mellow','tender','lively','dreamy','cozy','warm','swift','still','early','wandering',
     'humble','honest','kindly','merry','noble','patient','serene','steady','witty','lunar',
     'starry','dappled','summer','winter','autumn','spring','clever','gleaming'
@@ -535,7 +542,6 @@ begin
   loop
     candidate := adjectives[1 + floor(random() * array_length(adjectives, 1))::int]
               || nouns[1 + floor(random() * array_length(nouns, 1))::int];
-    -- lower() on both sides, matching profiles_display_name_key exactly.
     exit when not exists (select 1 from public.profiles where lower(display_name) = lower(candidate));
     tries := tries + 1;
     if tries >= 25 then
@@ -548,6 +554,12 @@ end;
 $$;
 
 revoke execute on function public.generate_display_name() from anon, authenticated;
+-- NOT ENOUGH ON ITS OWN. Postgres grants EXECUTE on a new function to PUBLIC,
+-- which anon and authenticated inherit, and revoking from a role does not
+-- remove a grant held through PUBLIC. With only the line above, an
+-- unauthenticated POST to /rest/v1/rpc/generate_display_name returned 200 and
+-- a name; with this line it returns 401 and 42501. Both verified live Sep 29.
+revoke execute on function public.generate_display_name() from public;
 
 -- Auto-create a profile whenever an auth user appears.
 --
@@ -595,52 +607,49 @@ create trigger profiles_name_guard
   before update on public.profiles
   for each row execute function public.enforce_profile_immutable_name();
 
-**Wordlist, as applied Sep 29.** 48 adjectives x 48 nouns = 2304 names, all
-lowercase, longest possible `wanderingmagnolia` at 17 characters (19 with the
-two-digit collision suffix) — comfortably inside `display_name_len`'s 30.
+**Wordlist standard.** This is a women's health app, so the wordlist is
+curated against a rule, not assembled by taste. **48 adjectives x 48 nouns =
+2304 names**, formed as a plain lowercase concatenation of one from each —
+`pearlyivy`, `stillpoppy`. Longest possible is `wanderingmagnolia` at 17
+characters, 19 with the two-digit collision suffix, comfortably inside
+`display_name_len`'s ceiling of 30.
 
-> **THIS WORDLIST DOES NOT SATISFY THE EXCLUSION STANDARD BELOW, AND THE
-> CONFLICT IS UNRESOLVED.** Three words the standard names as
-> "do not reintroduce" are back — **`coral`, `hazel`, `ivory`**, all three
-> excluded for describing skin, hair or eye colour — and the list as a whole
-> draws heavily on temperament (`gentle`, `brave`, `humble`, `honest`,
-> `kindly`, `merry`, `noble`, `patient`, `serene`, `steady`, `witty`,
-> `clever`, `tender`, `dreamy`, `mellow`, `lively`), which the standard
-> excludes as a category and which the old list deliberately avoided.
->
-> That is a wholesale change of intent, not an oversight, so it is recorded
-> rather than reverted. **One of the two has to give:** either the standard is
-> retired and this paragraph replaced with what the new rule is, or the three
-> named words come out and the temperament words are reconsidered. Until
-> somebody decides, the standard below describes the old list, not the running
-> one.
+**The rule: a word is excluded if it could read as a remark about the person's
+body.** That is narrower than the rule this section used to carry, and the
+narrowing was deliberate — see the note on temperament below.
 
-**The exclusion standard (written for the pre-Sep-29 wordlist).** This is a
-women's health app, so the wordlist was curated against a rule, not assembled
-by taste. Words were drawn only from **weather, landscape, plants, materials,
-and light**. A word was excluded if it could read as a remark about the person
-rather than a label:
-
-| Excluded because | Words removed |
+| Excluded because | Words kept out |
 |---|---|
 | Names or evokes a condition | `lichen` (lichen sclerosus, a vulvar condition discussed on these forums) |
-| Describes skin, hair, or eye colour | `dewy`, `ivory`, `olive`, `wheaten`, `hazel`, `bronze`, `coral` |
+| Describes skin, hair, or eye colour, or complexion | `dewy`, `olive`, `wheaten`, `bronze`, **`coral`**, **`hazel`**, **`ivory`**, **`dusky`** |
 | Reads as emptiness or infertility | `hollow`, `fallow` |
 | Names a symptom | `faint` |
-| Reads as a mood or temperament | `stony`, `glacial`, `distant`, `drifting`, `brisk`, `hidden` |
-| Reads bleak | `chalky`, `flinty`, `tundra` |
+| Reads bleak | `chalky`, `flinty`, `tundra`, `stony`, `glacial` |
 | Refers to age | `elder`, `ancient` |
 
-**Do not reintroduce any word in that table** — a rule the Sep 29 list breaks
-three times (`coral`, `hazel`, `ivory`), per the note above. The rest of the
-old guidance is kept, because it is still the right shape for whichever list
-wins: keep the two arrays equal in length, keep them alphabetical, and
-re-check that there are no duplicates within an array, no word in both, and no
-same-root cross pair (`mossy` + `moss` would yield `mossymoss`). The
-`display_name_len` ceiling of 30 is set by the longest word in each array; at
-48 x 48 the worst case is `wanderingmagnolia` (17), so there is a lot of
-headroom now. **The Sep 29 arrays are not alphabetical and are 48 each** — the
-"exactly 66, alphabetical" rule described the retired list only.
+**Do not reintroduce any word in that table.** The four in bold were briefly in
+the Sep 29 list and were taken out again the same day — `coral`, `hazel` and
+`ivory` against the standard as written, and `dusky` caught in review for the
+same reason. They were replaced by `frosty`, `leafy`, `mossy` and `stormy`.
+
+**Temperament words are now allowed, and that is a change of intent rather than
+a slip.** The list carries `gentle`, `brave`, `calm`, `humble`, `honest`,
+`kindly`, `merry`, `noble`, `patient`, `serene`, `steady`, `witty`, `clever`,
+`tender`, `dreamy`, `mellow` and `lively`, none of which would have passed the
+older "weather, landscape, plants, materials, and light" restriction. A warm
+adjective reads as a friendly label; a word about skin or fertility reads as an
+observation. **Only the second is the thing this standard exists to prevent.**
+Words that are bleak rather than merely moody — `distant`, `drifting`,
+`hidden`, and the `stony` / `glacial` pair now folded into the bleak row —
+stay out.
+
+**When changing the lists**, keep them equal in length, and re-check: no
+duplicates within an array, no word in both, and no same-root cross pair (an
+adjective `mossy` beside a noun `moss` would yield `mossymoss` — `mossy` is in
+the list and is safe only because `moss` is not a noun). **The old "exactly 66,
+alphabetical" clause is retired**: the arrays are 48 each and are not sorted.
+Either array's longest word sets the ceiling, so check it against
+`display_name_len` after any addition.
 
 create trigger on_auth_user_created
   after insert on auth.users
@@ -1101,7 +1110,8 @@ The cascade on `handle_new_user` also removes its trigger on `auth.users`, which
 | `/p/:id` | Post detail | Full post, like button, **threaded** comments to any depth with per-comment likes, reply composer. See section 21. |
 | `/t/pcos` | PCOS topic | The one topic page. Same card, same ordering, same `limit 50`, `.eq('topic', 'pcos')`. Readable signed out. A "New post" button opens `/new?topic=pcos`. See section 26. |
 | `/new` | Create post | Title + body, character counters matching the DB constraints, submit → redirect to the new post. Takes an optional `?topic=` preset. |
-| `/messages` | Messages | A placeholder. One centred line, "Stay tuned for webinar", and nothing else. See section 27. |
+| `/messages` | Messages | A placeholder. One centred line, "Messages coming soon", and nothing else. See section 27. |
+| `/webinar` | Webinar | A placeholder. One centred line about the upcoming PCOS webinar, and nothing else. Reached from the topic grid's Webinar tile, **not** from the tab bar, so no tab renders active here. Same bare treatment as `/messages`. See sections 26 and 27. |
 | `/me` | Profile edit | Edit `display_name`, `bio`, `avatar_emoji`. Optionally list the user's own posts. |
 
 ### Suggested queries
@@ -1321,6 +1331,7 @@ settings button. The destinations below are unchanged; only the copy is gone.
 | `/p/:id` | Back button to `/`, on both the loaded and not-found branches |
 | `/t/pcos` | Back button to `/` |
 | `/messages` | **The tab bar only** — no back link, on purpose. See section 27. |
+| `/webinar` | **The tab bar only**, same as `/messages` and for the same reason. Note that no tab is *highlighted* here — the bar is still the way out, it just does not claim this route. |
 | `/new` | Back button to `/`, or to `/t/pcos` when a topic is preset. On success it redirects to `/p/:id`, which has its own |
 | `/me` | Back button to `/` |
 | `*` | Back button to `/` |
@@ -3106,13 +3117,19 @@ query, or the data model, and neither is a topics system.**
 gained the project's only webfont, and the Webinar tile moved to first
 position. Both are described in place below rather than as a diff.
 
-#### A "Webinar" tile, linking to `/messages`
+#### A "Webinar" tile, linking to `/webinar`
 
 An eighth tile in `TopicGrid`, styled like the others and linking to
-`/messages` — so the grid and the Messages tab point at the same placeholder
-(section 27). **It is not a topic**: there is no `'webinar'` value in
+`/webinar`. **It is not a topic**: there is no `'webinar'` value in
 `posts_topic_check`, no route under `/t/`, and nothing queries it. It is a
-tile-shaped link to a screen that already existed.
+tile-shaped link to a one-line placeholder screen.
+
+**It pointed at `/messages` until Sep 30**, back when that route carried the
+webinar copy because the Messages tab was the only live destination in the app
+that could hold it. The two are now separate screens saying separate things —
+`/webinar` has the webinar line, `/messages` says "Messages coming soon" — and
+the tile owns `/webinar` outright. **`/webinar` is not a tab destination**, so
+no tab highlights there; the tile is the way in.
 
 Three things it changed, all of them in `TopicGrid.tsx`:
 
@@ -3180,7 +3197,7 @@ screen rather than pinning the line to 337 real pixels. Two things that choice
 turns on:
 
 - **`dvh`, not `vh`.** Safari's URL bar makes `100vh` larger than the visible
-  viewport, which would push the line down — the same reason `.messages-page`
+  viewport, which would push the line down — the same reason `.stub-page`
   composes from `100dvh` (section 27).
 - **A padding, not a percentage on the box.** A percentage `padding-top`
   resolves against **width**, not height, so it would silently track the wrong
@@ -3387,8 +3404,10 @@ three-slot spacing (section 16). So neither stop-condition in the brief
 applied: it exists, and it did not already link somewhere. **`/messages` is
 the path I chose**, since the tab supplied none.
 
-- **`src/routes/Messages.tsx`** renders one `<p>`: `Stay tuned for webinar`.
-  No page header, no back link, nothing else.
+- **`src/routes/Messages.tsx`** renders one `<p>`. No page header, no back
+  link, nothing else. **The copy was `Stay tuned for webinar` until Sep 30**,
+  when the webinar moved to its own route and this became
+  `Messages coming soon` — see the Sep 30 note at the end of this section.
 - **`TabBar.tsx`**: the `<button disabled>` became a `<Link to="/messages">`
   with `aria-current="page"` on the active route, matching Home and Ask
   exactly. It needed **no CSS of its own** — the 48px box and the `--button`
@@ -3410,7 +3429,8 @@ other element on a page whose point is that it holds a single sentence.
 
 #### Centring
 
-`.messages-page` is a flex centre over a `min-height` built from tokens that
+`.stub-page` (named `.messages-page` until Sep 30, when `/webinar` began
+sharing it) is a flex centre over a `min-height` built from tokens that
 already exist:
 
 ```
@@ -3460,13 +3480,16 @@ Headless Chrome at 393×852 over CDP, against the live Supabase project:
 | Messages tab | `<a href="/messages">`, `aria-current="page"` when active |
 | Active tabs on `/messages` | Exactly 1; the burgundy circle renders with the white bubble |
 | Disabled tabs anywhere | **None** |
-| `/messages` content | `Stay tuned for webinar` and nothing else |
+| `/messages` content | one line and nothing else |
 | Vertical scroll on `/messages` | None |
 
 ### What I guessed
 
 1. **The route path `/messages`.** The tab pointed nowhere, so nothing dictated
    it. `/messages` is the brief's own suggestion and matches the tab's label.
+   It kept the name when the webinar copy moved off it on Sep 30, which is
+   what made that split clean: the route was already named for the tab rather
+   than for the placeholder text it happened to be carrying.
 2. **That "no page header" means no *page-level* header.** The app shell's
    header — centred logo plus the settings button — still renders, because it
    lives outside `<Routes>` in `App.tsx` and removing it per-route would break
@@ -3483,9 +3506,47 @@ Headless Chrome at 393×852 over CDP, against the live Supabase project:
 
 **Still nothing on a real iPhone.** `env(safe-area-inset-top)` and
 `env(safe-area-inset-bottom)` both resolve to zero in headless Chrome, so the
-`/messages` centring wants a look on a notched device — it is the term most
+stub-page centring wants a look on a notched device — it is the term most
 sensitive to the insets. The blur's cost under a real finger is still open too,
 and the deeper surface does not change that either way.
+
+### The webinar moved to its own route (Sep 30)
+
+`/messages` had been carrying *"Stay tuned for webinar"* since Sep 17, for the
+reason above: the Messages tab was the first live destination in the app, so it
+was where a spare line of copy could go. That stopped making sense once the
+topic grid gained a Webinar tile pointing at it (section 26). The two are now
+separate:
+
+| Route | Shows | Reached from |
+|---|---|---|
+| `/webinar` | *Stay tuned for our PCOS webinar — Oct 21 at 5 pm CT* | The Webinar tile in the topic grid |
+| `/messages` | *Messages coming soon* | The Messages tab, which still highlights as active there |
+
+**NO TAB HIGHLIGHTS ON `/webinar`, AND THAT NEEDED NO WORK.** `TabBar`'s three
+checks are per-path equality (`pathname === '/new'`, `=== '/messages'`) with a
+single documented exception in `homeIsActive()` for `/p/:id`. A path that is
+not a tab destination therefore matches nothing and the bar renders with no
+active state — which `/me`, `/t/pcos`, `/signin` and the 404 have always done.
+`/webinar` simply joins them. Verified: zero active tabs there, exactly one on
+`/messages`. **Had the logic used a prefix or a fallback this would have been
+awkward**, so the note in `TabBar.tsx` now says why the equality checks are
+deliberate.
+
+**`.messages-page` / `.messages-text` became `.stub-page` / `.stub-text`**,
+because two screens share them now and a class named after one route styling
+another is exactly the drift this file tries to prevent. The rules are
+otherwise unchanged, except that `.stub-text` gained a `max-width`,
+`text-wrap: balance` and inline padding: the webinar line wraps where the
+messages line does not, and without them it ran to the edges and broke
+unevenly.
+
+Verified at 393x852: both routes centre their text identically (centre y=410.5
+against a visible-gap centre of 420 — the same 9.5px of `--sp-6` breathing room
+recorded above, unchanged), neither scrolls, neither has a back link or a page
+header, the tab buttons are still 48px, and there is no horizontal overflow.
+At 320px the webinar line keeps a 12.9px gutter from `.app-main` plus its own
+16px of inline padding.
 
 ---
 

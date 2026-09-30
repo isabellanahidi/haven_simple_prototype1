@@ -1064,7 +1064,11 @@ a {
   display: block;
 }
 
-/* ---------- messages (/messages) ----------
+/* ---------- one-line stub pages (/messages, /webinar) ----------
+   Shared by both placeholder screens. Named for the shape rather than for one
+   of them, because it styles both — a class called .messages-page setting the
+   webinar screen would be exactly the kind of drift this file tries to avoid.
+
    One line of text and nothing else: no header, no back link. The tab bar is
    the way out, which is why it lives outside <Routes> (section 12).
 
@@ -1082,7 +1086,7 @@ a {
 
    So the text is centred between the header and the bar and can never sit
    under either. */
-.messages-page {
+.stub-page {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1092,10 +1096,18 @@ a {
   );
 }
 
-.messages-text {
+.stub-text {
   margin: 0;
+  /* /webinar's line is long enough to wrap where /messages' is not. The
+     max-width sets where it breaks and `balance` evens the two lines rather
+     than leaving a short widow; the inline padding keeps it off the edges on
+     a narrow phone, since .app-main only contributes --sp-3. */
+  max-width: 26ch;
+  padding-inline: var(--sp-4);
   text-align: center;
+  text-wrap: balance;
   font-size: var(--fs-lg);
+  line-height: 1.4;
   color: var(--text-body);
 }
 
@@ -1728,7 +1740,7 @@ a {
 
    100dvh, not 100vh: with Safari's URL bar showing, 100vh overshoots the
    viewport and pushes the centred line below the true middle — the same reason
-   .messages-page composes from 100dvh. The safe-area insets are padding rather
+   .stub-page composes from 100dvh. The safe-area insets are padding rather
    than a subtraction here, because this covers the whole screen by design and
    only its text needs to stay clear of the notch and the home indicator.
 

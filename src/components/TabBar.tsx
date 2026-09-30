@@ -18,6 +18,12 @@ import { Link, useLocation } from 'react-router-dom';
  *
  * All three slots are live as of Sep 17. Messages used to be a disabled button
  * with no destination; it now routes to /messages. See section 27.
+ *
+ * NOT EVERY ROUTE BELONGS TO A TAB, and the checks below are deliberately
+ * per-path equality rather than a prefix or a fallback. /webinar, /me,
+ * /t/pcos, /signin and the 404 all render the bar with NO tab active, which is
+ * the honest state: none of them is a tab destination. The one exception is
+ * written out in homeIsActive() and is the only one.
  */
 
 /** Which tab owns a given path. Post detail belongs to the feed. */
