@@ -154,14 +154,32 @@
   box-sizing: border-box;
 }
 
-html {
+/* ============================================================
+   APP SHELL — THE DOCUMENT NEVER SCROLLS. .app-main does.
+
+   This is a fix, not a preference, and re-introducing document scrolling
+   brings the bug back. On iOS a `position: fixed` element rides the
+   document's rubber-band overscroll, so the bottom tab bar visibly slid up
+   and down with the bounce on some devices. Pinning html/body and moving the
+   scroll into a child means there is no document bounce for the bar to ride.
+
+   Three rules hold it together and they only work together:
+     - html/body are exactly the viewport, with overflow hidden.
+     - overscroll-behavior: none stops the rubber band at the document level.
+     - .app-main is the one scroll container, with its own contained bounce.
+
+   See CLAUDE.md section 9.
+   ============================================================ */
+html,
+body {
   /* 100dvh, not 100vh: 100vh is wrong while the URL bar is showing. */
   height: 100dvh;
+  overflow: hidden;
+  overscroll-behavior: none;
 }
 
 body {
   margin: 0;
-  min-height: 100dvh;
   background: var(--bg);
   color: var(--text);
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
@@ -171,8 +189,36 @@ body {
   -webkit-text-size-adjust: 100%;
 }
 
+/* FIXED, NOT MERELY `overflow: hidden` ON html/body — and this is the load-
+   bearing half of the shell.
+
+   `overflow: hidden` stops the USER scrolling the document; it does not make
+   the document unscrollable. An overflow-hidden box is still a scroll
+   container, so scripts can move it. Measured before this rule existed: with
+   html and body both hidden and .app-main scrolling correctly,
+   documentElement.scrollHeight was still 5323 against a 852 viewport,
+   window.scrollTo(0, 400) moved the page, and the scrollIntoView() the reply
+   composer runs for keyboard avoidance shifted the entire shell up 207px --
+   with the user unable to scroll it back, because gestures were disabled.
+   That is worse than the bug this whole change is fixing.
+
+   Taking #root out of flow removes the document's scrollable content
+   altogether, so there is nothing left to scroll by any route.
+
+   top/left/right + height rather than `inset: 0`: a fixed box with inset:0
+   sizes to the LAYOUT viewport, which on iOS does not shrink for the URL bar.
+   100dvh tracks the dynamic viewport, which is what section 9 asks for.
+
+   This creates no containing block for the fixed descendants below it
+   (.tab-bar, .sheet, .welcome, .back-link) -- only transform/filter/contain
+   would -- so they all still position against the viewport. */
 #root {
-  min-height: 100dvh;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 100dvh;
+  overflow: hidden;
 }
 
 /* Inputs must be >=16px or Safari auto-zooms on focus. */
@@ -218,7 +264,9 @@ a {
 /* ---------- app shell ---------- */
 
 .app {
-  min-height: 100dvh;
+  /* Exactly the viewport, not at least it: the shell is a fixed frame and
+     .app-main scrolls inside it. */
+  height: 100dvh;
   display: flex;
   flex-direction: column;
 }
@@ -287,16 +335,26 @@ a {
 }
 
 .app-main {
-  /* The containing block for .back-link, which is positioned up into the
-     header band. Nothing else in here is absolutely positioned. */
-  position: relative;
   flex: 1;
+  /* REQUIRED, and easy to lose. A flex item defaults to min-height: auto,
+     which refuses to shrink below its content — so without this the item
+     grows past the viewport, the document scrolls again, and the tab bar
+     starts riding the bounce exactly as before. */
+  min-height: 0;
+  /* THE ONE SCROLL CONTAINER IN THE APP. contain stops a bounce at this
+     element's edges instead of handing it up to the document, and the
+     -webkit- line is a no-op on current iOS but harmless on the old ones. */
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
   width: 100%;
   max-width: var(--content-max);
   margin: 0 auto;
   padding: var(--sp-3) var(--sp-3);
-  /* Clears the fixed tab bar, its safe-area inset, and then some. Without the
-     --tabbar-h term the last feed card sits behind the bar. */
+  /* The fixed tab bar overlaps the bottom of this box rather than sitting
+     below it, so content scrolls underneath the bar and this padding is what
+     lets the last card clear it. */
   padding-bottom: calc(var(--tabbar-h) + var(--sp-6) + env(safe-area-inset-bottom));
 }
 
@@ -682,9 +740,35 @@ a {
    Tap target: the 46px box clears the 44px minimum on its own, so unlike
    .icon-btn this needs no ::after to grow it. */
 .back-link {
-  position: absolute;
-  top: calc(var(--header-h) / -2 - 22px);
-  left: calc(var(--sp-4) - 3px);
+  /* FIXED, NOT ABSOLUTE, since the app-shell change. It used to be absolute
+     against .app-main, which worked while .app-main was a plain block: the
+     negative `top` lifted it out of the box and into the header band. Now
+     .app-main clips its overflow, so an absolute child positioned above the
+     box's own top edge is simply cut off and the button disappears.
+
+     Fixed also means it no longer scrolls away with the content, which is
+     what it should have been doing all along — it belongs to the header band,
+     not to the page.
+
+     VERTICAL: measured from the viewport now rather than from .app-main, so
+     the inset is written out instead of cancelling. The band's centre is
+     env(...) + --header-h/2; .icon-btn's 40px circle is centred in it, and
+     this asset's circle sits 2px down its 46px box.
+
+     HORIZONTAL: the column is centred and can be narrower than the viewport,
+     so the offset is measured from the column's left edge, not the window's.
+     max() picks the window edge below --content-max and the column edge above
+     it, mirroring .icon-btn's --sp-4 inset on the other side. The extra 3px
+     is the asset's own shadow padding. */
+  position: fixed;
+  top: calc(env(safe-area-inset-top) + (var(--header-h) - 40px) / 2 - 2px);
+  left: max(
+    calc(var(--sp-4) - 3px),
+    calc(50% - var(--content-max) / 2 + var(--sp-4) - 3px)
+  );
+  /* Above the drawer (10) and the scrolled content; below the welcome
+     overlay (100). */
+  z-index: 25;
   display: block;
   width: 46px;
   height: 46px;

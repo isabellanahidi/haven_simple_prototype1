@@ -1210,6 +1210,60 @@ Still worth confirming on device, because it changes what testers should be told
 - **Vercel deployments are immutable.** A build created before the variables were saved has `undefined` baked in permanently; reloading won't help. Redeploy (⋯ → Redeploy, build cache off).
 - **The anon key ends up publicly readable in the bundle. That's fine and by design** — RLS is the actual access control. The gitignore is hygiene, not protection.
 
+### THE APP SHELL — the document must never scroll (Sep 30)
+
+**`.app-main` is the only scroll container in the app. Anything that gives the
+document scrollable content brings back a real, reported bug.**
+
+On iOS a `position: fixed` element rides the document's rubber-band overscroll,
+so the bottom tab bar visibly slid up and down with the bounce on some phones —
+not all, which is what made it look intermittent rather than structural. The
+fix is to leave the document nothing to bounce:
+
+| Layer | Rule |
+|---|---|
+| `html`, `body` | `height: 100dvh`, `overflow: hidden`, `overscroll-behavior: none` |
+| `#root` | **`position: fixed`**, `top/left/right: 0`, `height: 100dvh`, `overflow: hidden` |
+| `.app` | `height: 100dvh`, flex column |
+| `.app-main` | `flex: 1`, **`min-height: 0`**, `overflow-y: auto`, `overscroll-behavior-y: contain` |
+| `.app-header`, `.tab-bar` | Outside the scroll container, so the bounce cannot reach them |
+
+**Three of those are load-bearing and each was found the hard way:**
+
+- **`overflow: hidden` IS NOT ENOUGH ON ITS OWN.** It stops the *user*
+  scrolling the document; it does not stop a *script*. An overflow-hidden box
+  is still a scroll container. Measured with html and body both hidden and
+  `.app-main` scrolling correctly: `documentElement.scrollHeight` was 5323
+  against an 852 viewport, `window.scrollTo(0, 400)` worked, and the
+  `scrollIntoView()` the reply composer runs for keyboard avoidance shifted the
+  whole shell up 207px — with the user unable to scroll it back, because
+  gestures were disabled. **`position: fixed` on `#root` is what actually
+  removes the document's scrollable content.** After it,
+  `documentElement.scrollHeight === clientHeight` and `window.scrollTo` is a
+  no-op.
+- **`min-height: 0` on `.app-main`.** A flex item defaults to
+  `min-height: auto` and refuses to shrink below its content, so without it the
+  item grows past the viewport, the document scrolls again, and the bar rides
+  the bounce exactly as before.
+- **`top/left/right` + `height: 100dvh` on `#root`, not `inset: 0`.** A fixed
+  box with `inset: 0` sizes to the *layout* viewport, which on iOS does not
+  shrink for the URL bar. `100dvh` tracks the dynamic viewport, which is what
+  the first rule below asks for.
+
+**What follows from the shell, for anything written later:**
+
+- **Never restore `overflow: auto`/`scroll` to `html` or `body`**, and never
+  size `#root`/`.app` with `min-height` again — both let the document grow.
+- **A new full-height screen scrolls inside `.app-main`**, not the window.
+- **`window.scrollTo`, `window.scrollY` and `window` scroll listeners are all
+  dead here.** Use the container. `ScrollManager` holds the one ref to it.
+- **`position: fixed` still works and still means the viewport**, because
+  nothing in the shell sets `transform`, `filter` or `contain` on an ancestor.
+  `.tab-bar`, `.sheet`, `.welcome` and `.back-link` all rely on that.
+- **`scrollIntoView()` is safe again** and scrolls the container. The
+  `scroll-margin-top` / `scroll-margin-bottom` on `.comment-composer` still
+  apply.
+
 ### Mobile Safari specifics
 - Use `100dvh`, not `100vh` — `100vh` is wrong when the URL bar is showing.
 - Respect the notch: `env(safe-area-inset-bottom)` on any fixed bottom bar.
@@ -1219,6 +1273,7 @@ Still worth confirming on device, because it changes what testers should be told
 - A `manifest.json` plus `apple-mobile-web-app-capable` does far more than make the install *feel* app-like — it is what keeps sessions alive past seven days. See section 12.
 - **iOS Safari caches aggressively.** When verifying a fresh deploy, use a Private tab or clear website data, otherwise you may be reading a stale bundle and misdiagnosing.
 - **Deep links need the SPA rewrite.** `vercel.json` is in place; verify by loading `/p/test` directly and reloading. A 404 there means every shared post link is broken.
+- **The tab bar no longer moves with overscroll.** That was a real bug on some phones and the app-shell block above is the fix. If it ever comes back, the first thing to check is whether something gave the document scrollable content again.
 
 ### Unresolved: LAN dev URL doesn't reach the iPhone
 

@@ -1,8 +1,10 @@
+import { useRef } from 'react';
 import { BrowserRouter, Link, Route, Routes } from 'react-router-dom';
 import { SessionProvider } from './components/SessionProvider';
 import { RequireAuth } from './components/RequireAuth';
 import { TabBar } from './components/TabBar';
 import { WelcomeOverlay } from './components/WelcomeOverlay';
+import { ScrollManager } from './components/ScrollManager';
 import Feed from './routes/Feed';
 import TopicPcos from './routes/TopicPcos';
 import Messages from './routes/Messages';
@@ -14,10 +16,17 @@ import SignIn from './routes/SignIn';
 import NotFound from './routes/NotFound';
 
 export default function App() {
+  // .app-main is the app's only scroll container — the document itself does
+  // not scroll. See the app-shell block at the top of styles.css.
+  const mainRef = useRef<HTMLElement>(null);
+
   return (
     <BrowserRouter>
       <SessionProvider>
         <div className="app">
+          {/* Inside BrowserRouter so it can read the location; renders nothing. */}
+          <ScrollManager containerRef={mainRef} />
+
           {/* Outside <Routes> so a route change can't restart it, and it does
               not depend on which screen the visit began on. It removes itself
               from the DOM once it has faded. */}
@@ -37,7 +46,7 @@ export default function App() {
             </Link>
           </header>
 
-          <main className="app-main">
+          <main className="app-main" ref={mainRef}>
             <Routes>
               {/* Readable with no session — the RLS select policies pass for
                   the anon role. */}
